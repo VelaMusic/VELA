@@ -1,0 +1,353 @@
+
+
+package com.vela.app.playback
+
+import coil3.SingletonImageLoader
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+
+import android.content.Context
+import android.net.ConnectivityManager
+import androidx.core.content.getSystemService
+import androidx.core.net.toUri
+import androidx.media3.database.DatabaseProvider
+import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.offline.Download
+import androidx.media3.exoplayer.offline.DownloadManager
+import androidx.media3.exoplayer.offline.DownloadNotificationHelper
+import com.music.innertube.YouTube
+import com.vela.app.constants.AudioQuality
+import com.vela.app.constants.AudioQualityKey
+import com.vela.app.constants.IpVersionKey
+import com.music.innertube.models.IpVersion
+import okhttp3.Dns
+import java.net.InetAddress
+import java.net.Inet4Address
+import java.net.Inet6Address
+import com.vela.app.db.MusicDatabase
+import com.vela.app.db.entities.FormatEntity
+import com.vela.app.db.entities.SongEntity
+import com.vela.app.di.DownloadCache
+import com.vela.app.di.PlayerCache
+import com.vela.app.ui.utils.resize
+import com.vela.app.utils.YTPlayerUtils
+import com.vela.app.constants.DownloadWithMetadataKey
+import com.vela.app.utils.dataStore
+import com.vela.app.utils.enumPreference
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Runnable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneOffset
+import java.util.concurrent.Executors
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class DownloadUtil
+@Inject
+constructor(
+    @ApplicationContext context: Context,
+    val database: MusicDatabase,
+    val databaseProvider: DatabaseProvider,
+    @DownloadCache val downloadCache: SimpleCache,
+    @PlayerCache val playerCache: SimpleCache,
+) {
+    private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
+    private val downloadQuality by enumPreference(context, com.vela.app.constants.DownloadQualityKey, com.vela.app.constants.DownloadQuality.YOUTUBE)
+    private val ipVersion by enumPreference(context, IpVersionKey, IpVersion.AUTO)
+    private val songUrlCache = HashMap<String, Pair<String, Long>>()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
+
+    private val dataSourceFactory =
+        ResolvingDataSource.Factory(
+            ChunkingDataSourceFactory(
+                OkHttpDataSource.Factory(
+                    OkHttpClient.Builder()
+                        .dns(object : Dns {
+                            override fun lookup(hostname: String): List<InetAddress> {
+                                val addresses = Dns.SYSTEM.lookup(hostname)
+                                return when (this@DownloadUtil.ipVersion) {
+                                    IpVersion.IPV4 -> addresses.filter { it is Inet4Address }.ifEmpty { addresses }
+                                    IpVersion.IPV6 -> addresses.filter { it is Inet6Address }.ifEmpty { addresses }
+                                    IpVersion.AUTO -> addresses
+                                }
+                            }
+                        })
+                        .proxy(YouTube.proxy)
+                        .proxyAuthenticator { _, response ->
+                            YouTube.proxyAuth?.let { auth ->
+                                response.request.newBuilder()
+                                    .header("Proxy-Authorization", auth)
+                                    .build()
+                            } ?: response.request
+                        }
+                        .build(),
+                )
+            )
+        ) { dataSpec ->
+            val mediaId = dataSpec.key ?: error("No media id")
+
+            songUrlCache["${mediaId}_${downloadQuality.name}"]?.takeIf { it.second > System.currentTimeMillis() }?.let {
+                return@Factory dataSpec.withUri(it.first.toUri())
+            }
+
+            val playbackData = runBlocking(Dispatchers.IO) {
+                YTPlayerUtils.playerResponseForPlayback(
+                    videoId = mediaId,
+                    audioQuality = com.vela.app.constants.AudioQuality.AUTO,
+                    connectivityManager = connectivityManager
+                )
+            }.getOrThrow()
+            val format = playbackData.format
+
+            database.query {
+                upsert(
+                    FormatEntity(
+                        id = mediaId,
+                        itag = format.itag,
+                        mimeType = format.mimeType.split(";")[0],
+                        codecs = format.mimeType.split("codecs=").getOrNull(1)?.removeSurrounding("\"") ?: "opus",
+                        bitrate = format.bitrate,
+                        sampleRate = format.audioSampleRate,
+                        contentLength = format.contentLength ?: 0L,
+                        loudnessDb = playbackData.audioConfig?.loudnessDb,
+                        perceptualLoudnessDb = playbackData.audioConfig?.perceptualLoudnessDb,
+                        playbackUrl = playbackData.playbackTracking?.videostatsPlaybackUrl?.baseUrl
+                    ),
+                )
+
+                val existing = getSongByIdBlocking(mediaId)?.song
+
+                val updatedSong = if (existing != null) {
+                    existing.copy(
+                        thumbnailUrl = existing.thumbnailUrl ?: playbackData.videoDetails?.thumbnail?.thumbnails?.lastOrNull()?.url?.resize(1200, 1200)
+                    )
+                } else {
+                    SongEntity(
+                        id = mediaId,
+                        title = playbackData.videoDetails?.title ?: "Unknown",
+                        duration = playbackData.videoDetails?.lengthSeconds?.toIntOrNull() ?: 0,
+                        thumbnailUrl = playbackData.videoDetails?.thumbnail?.thumbnails?.lastOrNull()?.url?.resize(1200, 1200),
+                        dateDownload = null,
+                        isDownloaded = false
+                    )
+                }
+
+                upsert(updatedSong)
+
+                // Download with metadata: fetch and cache lyrics alongside the audio so
+                // offline playback keeps working with lyrics. Runs off the critical
+                // path; skipped entirely when the toggle is off or lyrics already exist.
+                scope.launch {
+                    try {
+                        val downloadWithMetadata =
+                            context.dataStore.data.first()[DownloadWithMetadataKey] ?: true
+                        if (!downloadWithMetadata) return@launch
+                        if (database.lyrics(mediaId).firstOrNull() != null) return@launch
+
+                        val songWithArtists = getSongByIdBlocking(mediaId)
+                        val metadata = com.vela.app.models.MediaMetadata(
+                            id = mediaId,
+                            title = updatedSong.title,
+                            artists = songWithArtists?.artists?.map {
+                                com.vela.app.models.MediaMetadata.Artist(it.id, it.name)
+                            } ?: listOf(
+                                com.vela.app.models.MediaMetadata.Artist(
+                                    id = "",
+                                    name = playbackData.videoDetails?.author ?: ""
+                                )
+                            ),
+                            duration = updatedSong.duration,
+                            thumbnailUrl = updatedSong.thumbnailUrl
+                        )
+                        val entryPoint = dagger.hilt.android.EntryPointAccessors.fromApplication(
+                            context.applicationContext,
+                            com.vela.app.di.LyricsHelperEntryPoint::class.java
+                        )
+                        val fetched = entryPoint.lyricsHelper().getLyrics(metadata)
+                        database.query {
+                            upsert(
+                                com.vela.app.db.entities.LyricsEntity(
+                                    id = mediaId,
+                                    lyrics = fetched.lyrics ?: "",
+                                    provider = fetched.providerName
+                                )
+                            )
+                        }
+                    } catch (e: Exception) {
+                        // Lyrics are best-effort: never fail a download because of them.
+                    }
+                }
+
+                updatedSong.thumbnailUrl?.let { url ->
+                    val request = ImageRequest.Builder(context)
+                        .data(url)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build()
+                    SingletonImageLoader.get(context).enqueue(request)
+                }
+            }
+
+            val streamUrl = playbackData.streamUrl
+
+            songUrlCache["${mediaId}_${downloadQuality.name}"] = streamUrl to playbackData.streamExpiresInSeconds * 1000L
+            dataSpec.withUri(streamUrl.toUri())
+        }
+
+    val downloadNotificationHelper =
+        DownloadNotificationHelper(context, ExoDownloadService.CHANNEL_ID)
+
+    @OptIn(DelicateCoroutinesApi::class)
+    val downloadManager: DownloadManager =
+        DownloadManager(
+            context,
+            databaseProvider,
+            downloadCache,
+            dataSourceFactory,
+            Executors.newFixedThreadPool(3)
+        ).apply {
+            maxParallelDownloads = 3
+            addListener(
+                object : DownloadManager.Listener {
+                    override fun onDownloadChanged(
+                        downloadManager: DownloadManager,
+                        download: Download,
+                        finalException: Exception?,
+                    ) {
+                        downloads.update { map ->
+                            map.toMutableMap().apply {
+                                set(download.request.id, download)
+                            }
+                        }
+
+                        scope.launch {
+                            when (download.state) {
+                                Download.STATE_COMPLETED -> {
+                                    val timestamp = if (download.updateTimeMs > 0) download.updateTimeMs else System.currentTimeMillis()
+                                    val downloadDate = LocalDateTime.ofInstant(Instant.ofEpochMilli(timestamp), ZoneOffset.UTC)
+                                    val title = runCatching { androidx.media3.common.util.Util.fromUtf8Bytes(download.request.data) }.getOrNull()?.takeIf { it.isNotBlank() } ?: "Unknown"
+                                    database.withTransaction {
+                                        val rowId =
+                                            insert(
+                                                SongEntity(
+                                                    id = download.request.id,
+                                                    title = title,
+                                                    dateDownload = downloadDate,
+                                                    isDownloaded = true
+                                                )
+                                            )
+                                        if (rowId == -1L) {
+                                            updateDownloadedInfo(download.request.id, true, downloadDate)
+                                        }
+                                    }
+                                }
+                                Download.STATE_FAILED,
+                                Download.STATE_REMOVING -> {
+                                    database.updateDownloadedInfo(download.request.id, false, null)
+                                }
+                                else -> {
+                                }
+                            }
+                        }
+                    }
+
+                    override fun onDownloadRemoved(
+                        downloadManager: DownloadManager,
+                        download: Download,
+                    ) {
+                        downloads.update { map ->
+                            map.toMutableMap().apply { remove(download.request.id) }
+                        }
+                        scope.launch {
+                            database.updateDownloadedInfo(download.request.id, false, null)
+                        }
+                    }
+                }
+            )
+        }
+
+    init {
+        val result = mutableMapOf<String, Download>()
+        downloadManager.downloadIndex.getDownloads().use { cursor ->
+            while (cursor.moveToNext()) {
+                result[cursor.download.request.id] = cursor.download
+            }
+        }
+        downloads.value = result
+
+        scope.launch(Dispatchers.IO) {
+            result.values.forEach { download ->
+                if (download.state == Download.STATE_COMPLETED) {
+                    val timestamp = if (download.updateTimeMs > 0) download.updateTimeMs else System.currentTimeMillis()
+                    val downloadDate = LocalDateTime.ofInstant(Instant.ofEpochMilli(timestamp), ZoneOffset.UTC)
+                    database.updateDownloadedInfo(download.request.id, true, downloadDate)
+                }
+            }
+        }
+    }
+
+    fun getDownload(songId: String): Flow<Download?> = downloads.map { it[songId] }
+
+    fun release() {
+        scope.cancel()
+    }
+
+    companion object {
+        /**
+         * Computes the aggregated download state for a collection of song IDs.
+         * - [Download.STATE_COMPLETED] if all songs are completed.
+         * - [Download.STATE_DOWNLOADING] if at least one song is currently queued or downloading.
+         * - [Download.STATE_STOPPED] otherwise (idle, stopped, or empty).
+         */
+        fun computeDownloadState(
+            songIds: Collection<String>?,
+            downloads: Map<String, Download>,
+        ): Int {
+            if (songIds.isNullOrEmpty()) return Download.STATE_STOPPED
+            return if (songIds.all { downloads[it]?.state == Download.STATE_COMPLETED }) {
+                Download.STATE_COMPLETED
+            } else if (
+                songIds.any {
+                    downloads[it]?.state == Download.STATE_QUEUED ||
+                        downloads[it]?.state == Download.STATE_DOWNLOADING
+                }
+            ) {
+                Download.STATE_DOWNLOADING
+            } else {
+                Download.STATE_STOPPED
+            }
+        }
+
+        /**
+         * Returns true if the song is currently completed, queued, or downloading.
+         */
+        fun hasDownload(songId: String, downloads: Map<String, Download>): Boolean {
+            val state = downloads[songId]?.state
+            return state == Download.STATE_COMPLETED ||
+                state == Download.STATE_QUEUED ||
+                state == Download.STATE_DOWNLOADING
+        }
+    }
+}

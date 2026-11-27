@@ -1,0 +1,258 @@
+
+
+package com.vela.app.ui.screens.library
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.navigation.NavController
+import com.vela.app.R
+import com.vela.app.constants.ChipSortTypeKey
+import com.vela.app.constants.LibraryFilter
+import com.vela.app.ui.component.ChipsRow
+import com.vela.app.ui.component.Material3SettingsGroup
+import com.vela.app.ui.component.Material3SettingsItem
+import com.vela.app.utils.onlinePlaylistIdFromUrl
+import com.vela.app.utils.onlinePlaylistRoute
+import com.vela.app.utils.rememberEnumPreference
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import com.vela.app.LocalPlayerAwareWindowInsets
+import com.vela.app.constants.FloatingToolbarBottomPadding
+import com.vela.app.constants.MiniPlayerBottomSpacing
+import com.vela.app.constants.MiniPlayerHeight
+import com.vela.app.constants.NavigationBarHeight
+import com.vela.app.ui.component.TextFieldDialog
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LibraryScreen(navController: NavController) {
+    var filterType by rememberEnumPreference(ChipSortTypeKey, LibraryFilter.LIBRARY)
+    var showImportMenu by remember { mutableStateOf(false) }
+    var showYoutubeImportDialog by remember { mutableStateOf(false) }
+    var showCreatePlaylistDialog by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    BackHandler(enabled = filterType != LibraryFilter.LIBRARY) {
+        filterType = LibraryFilter.LIBRARY
+    }
+
+    val filterContent = @Composable {
+        Row {
+            ChipsRow(
+                chips =
+                listOf(
+                    LibraryFilter.PLAYLISTS to stringResource(R.string.filter_playlists),
+                    LibraryFilter.SONGS to stringResource(R.string.filter_songs),
+                    LibraryFilter.ALBUMS to stringResource(R.string.filter_albums),
+                    LibraryFilter.ARTISTS to stringResource(R.string.filter_artists),
+                    LibraryFilter.LOCAL to stringResource(R.string.filter_local),
+                    LibraryFilter.SPOTIFY to stringResource(R.string.filter_spotify),
+                ),
+                currentValue = filterType,
+                onValueUpdate = {
+                    filterType =
+                        if (filterType == it) {
+                            LibraryFilter.LIBRARY
+                        } else {
+                            it
+                        }
+                },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+
+    val currentInsets = LocalPlayerAwareWindowInsets.current
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val fabHeightPlusSpacing = 140.dp
+    val newInsets = remember(currentInsets, density, layoutDirection) {
+        object : WindowInsets {
+            override fun getLeft(density: Density, layoutDirection: LayoutDirection) = currentInsets.getLeft(density, layoutDirection)
+            override fun getTop(density: Density) = currentInsets.getTop(density)
+            override fun getRight(density: Density, layoutDirection: LayoutDirection) = currentInsets.getRight(density, layoutDirection)
+            override fun getBottom(density: Density) = currentInsets.getBottom(density) + with(density) { fabHeightPlusSpacing.roundToPx() }
+        }
+    }
+
+    CompositionLocalProvider(LocalPlayerAwareWindowInsets provides newInsets) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            when (filterType) {
+            LibraryFilter.LIBRARY -> LibraryMixScreen(navController, filterContent)
+            LibraryFilter.PLAYLISTS -> LibraryPlaylistsScreen(navController, filterContent)
+            LibraryFilter.SONGS -> LibrarySongsScreen(
+                navController,
+                { filterType = LibraryFilter.LIBRARY })
+
+            LibraryFilter.ALBUMS -> LibraryAlbumsScreen(
+                navController,
+                { filterType = LibraryFilter.LIBRARY })
+
+            LibraryFilter.ARTISTS -> LibraryArtistsScreen(
+                navController,
+                { filterType = LibraryFilter.LIBRARY })
+
+            LibraryFilter.LOCAL -> LocalSongScreen(
+                navController = navController,
+                onBack = { filterType = LibraryFilter.LIBRARY },
+                isEmbedded = true,
+                filterContent = filterContent,
+            )
+            LibraryFilter.SPOTIFY ->
+                LibrarySpotifyScreen(navController, filterContent)
+        }
+        }
+    }
+
+    if (filterType == LibraryFilter.PLAYLISTS) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding()
+                .padding(
+                    end = 16.dp,
+                    bottom = FloatingToolbarBottomPadding + NavigationBarHeight + MiniPlayerBottomSpacing + MiniPlayerHeight + 16.dp
+                )
+        ) {
+            Column(
+                modifier = Modifier.align(Alignment.BottomEnd),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.End
+            ) {
+                ExtendedFloatingActionButton(
+                    text = { Text(stringResource(R.string.create_playlist)) },
+                    icon = { Icon(painter = painterResource(R.drawable.add), contentDescription = "Create playlist") },
+                    onClick = { showCreatePlaylistDialog = true },
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                )
+                
+                ExtendedFloatingActionButton(
+                    text = { Text(stringResource(R.string.import_playlist)) },
+                    icon = { Icon(painter = painterResource(R.drawable.download), contentDescription = "Import playlist") },
+                    onClick = { showImportMenu = true },
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+
+    if (showImportMenu) {
+        ModalBottomSheet(
+            onDismissRequest = { showImportMenu = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(start = 16.dp, end = 16.dp)
+                    .padding(bottom = 24.dp)
+            ) {
+                Material3SettingsGroup(
+                    compact = true,
+                    items = listOf(
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.ic_spotify),
+                            tintIcon = false,
+                            title = { Text("Import from Spotify") },
+                            onClick = {
+                                showImportMenu = false
+                                // Navigate to Backup & Restore where the full Spotify import
+                                // flow lives (authenticate, select playlists, import).
+                                navController.navigate("settings/backup_restore?highlightKey=spotify_import")
+                            }
+                        ),
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.download),
+                            title = { Text("Import from YouTube Music") },
+                            onClick = {
+                                showImportMenu = false
+                                showYoutubeImportDialog = true
+                            }
+                        )
+                    )
+                )
+            }
+        }
+    }
+
+    if (showYoutubeImportDialog) {
+        var url by remember { mutableStateOf(TextFieldValue("")) }
+        com.vela.app.ui.component.TextFieldDialog(
+            icon = { Icon(painter = painterResource(R.drawable.link), contentDescription = null) },
+            title = {
+                Column {
+                    Text(text = "Import playlist from YouTube Music")
+                    Text(
+                        text = "Paste the public YouTube Music playlist link below",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            },
+            initialTextFieldValue = url,
+            autoFocus = true,
+            onDismiss = { showYoutubeImportDialog = false },
+            onDone = { finalUrl ->
+                val route = onlinePlaylistRoute(onlinePlaylistIdFromUrl(finalUrl))
+                if (route != null) {
+                    navController.navigate(route)
+                } else {
+                    android.widget.Toast.makeText(context, "Invalid playlist URL", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                showYoutubeImportDialog = false
+            }
+        )
+    }
+
+    if (showCreatePlaylistDialog) {
+        com.vela.app.ui.component.CreatePlaylistDialog(
+            onDismiss = { showCreatePlaylistDialog = false },
+            initialTextFieldValue = null,
+            allowSyncing = true,
+            onPlaylistCreated = { playlistId ->
+                showCreatePlaylistDialog = false
+                navController.navigate("local_playlist/$playlistId")
+            }
+        )
+    }
+
+}
