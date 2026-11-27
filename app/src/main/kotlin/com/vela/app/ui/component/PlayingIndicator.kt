@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.component
 
@@ -15,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -87,7 +98,7 @@ fun PlayingIndicatorBox(
     modifier: Modifier = Modifier,
     isActive: Boolean,
     playWhenReady: Boolean,
-    color: Color = Color.White,
+    color: Color = LocalContentColor.current,
 ) {
     AnimatedVisibility(
         visible = isActive,

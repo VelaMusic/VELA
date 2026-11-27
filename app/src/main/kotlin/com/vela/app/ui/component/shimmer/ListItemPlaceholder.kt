@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.component.shimmer
 
@@ -30,9 +40,8 @@ fun ListItemPlaceHolder(
         verticalAlignment = Alignment.CenterVertically,
         modifier =
         modifier
-            .padding(vertical = 2.dp)
             .height(ListItemHeight)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 6.dp),
     ) {
         Spacer(
             modifier =
@@ -40,7 +49,7 @@ fun ListItemPlaceHolder(
                 .padding(6.dp)
                 .size(ListThumbnailSize)
                 .clip(thumbnailShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(MaterialTheme.colorScheme.onSurface),
         )
 
         Column(

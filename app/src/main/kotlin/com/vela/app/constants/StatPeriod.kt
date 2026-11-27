@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.constants
 
@@ -91,7 +101,7 @@ fun statToPeriod(
         }
 
         OptionStats.CONTINUOUS -> {
-            val index = if (test >= StatPeriod.entries.size) StatPeriod.entries.size - 1 else test
+            val index = if (test > StatPeriod.entries.size) 0 else test
             StatPeriod.entries[index].toTimeMillis()
         }
     }

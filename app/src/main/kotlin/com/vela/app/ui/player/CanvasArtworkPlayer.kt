@@ -1,80 +1,57 @@
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.vela.app.ui.player
 
-import android.graphics.Matrix
-import android.view.TextureView
-import android.view.ViewGroup
-import android.view.ViewGroup.LayoutParams.MATCH_PARENT
-import android.widget.FrameLayout
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
-import com.music.innertube.YouTube
-import com.music.innertube.models.YouTubeClient
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.compose.ContentFrame
+import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
+import com.vela.app.innertube.YouTube
+import com.vela.app.utils.StreamClientUtils
 import okhttp3.OkHttpClient
-
-private fun updateTextureTransform(
-    textureView: TextureView,
-    viewWidth: Int,
-    viewHeight: Int,
-    videoWidth: Int,
-    videoHeight: Int,
-) {
-    if (viewWidth <= 0 || viewHeight <= 0 || videoWidth <= 0 || videoHeight <= 0) return
-
-    val viewRatio = viewWidth.toFloat() / viewHeight
-    val videoRatio = videoWidth.toFloat() / videoHeight
-
-    var scaleX = 1f
-    var scaleY = 1f
-
-    if (viewRatio > videoRatio) {
-        scaleY = viewRatio / videoRatio
-    } else {
-        scaleX = videoRatio / viewRatio
-    }
-
-    // Cinematic letterbox cropping:
-    // Many 16:9 music videos have 2.35:1 or 2.39:1 letterbox bars.
-    // 16/9 = 1.78, active 2.35:1 picture height = 16 / 2.35 = 6.8 vs 9 -> 9 / 6.8 = 1.32x.
-    // Zooming by 1.32x crops those bars away completely while keeping the central subject focused.
-    val letterboxCrop = if (videoRatio > 1.2f) 1.32f else 1.0f
-    scaleX *= letterboxCrop
-    scaleY *= letterboxCrop
-
-    val matrix = Matrix()
-    matrix.setScale(scaleX, scaleY, viewWidth / 2f, viewHeight / 2f)
-    textureView.setTransform(matrix)
-}
+import java.util.Locale
 
 @Composable
-fun CanvasArtworkPlayer(
+internal fun CanvasArtworkPlayer(
     primaryUrl: String?,
     fallbackUrl: String?,
     isPlaying: Boolean,
-    clipStartMs: Long? = null,
-    clipEndMs: Long? = null,
     modifier: Modifier = Modifier,
+    resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT,
 ) {
     val context = LocalContext.current
     val primary = primaryUrl?.takeIf { it.isNotBlank() }
@@ -82,15 +59,12 @@ fun CanvasArtworkPlayer(
     val initial = primary ?: fallback ?: return
     var currentUrl by remember(initial) { mutableStateOf(initial) }
     var isVideoReady by remember(initial) { mutableStateOf(false) }
-    var textureViewRef by remember { mutableStateOf<TextureView?>(null) }
-    var currentVideoWidth by remember { mutableIntStateOf(0) }
-    var currentVideoHeight by remember { mutableIntStateOf(0) }
 
     val okHttpClient =
         remember {
             OkHttpClient
                 .Builder()
-                .proxy(YouTube.proxy)
+                .proxy(YouTube.streamOkHttpProxy)
                 .addInterceptor { chain ->
                     val request = chain.request()
                     val host = request.url.host
@@ -103,33 +77,13 @@ fun CanvasArtworkPlayer(
 
                     if (!isYouTubeMediaHost) return@addInterceptor chain.proceed(request)
 
-                    val clientParam = request.url.queryParameter("c")?.trim().orEmpty()
-                    val isWeb =
-                        clientParam.startsWith("WEB", ignoreCase = true) ||
-                            clientParam.startsWith("WEB_REMIX", ignoreCase = true) ||
-                            request.url.toString().contains("c=WEB", ignoreCase = true)
-
-                    val userAgent =
-                        when {
-                            clientParam.startsWith("WEB", ignoreCase = true) ||
-                                clientParam.startsWith("WEB_REMIX", ignoreCase = true) -> YouTubeClient.USER_AGENT_WEB
-
-                            clientParam.startsWith("IOS", ignoreCase = true) -> YouTubeClient.IOS.userAgent
-
-                            clientParam.startsWith("ANDROID_VR", ignoreCase = true) -> YouTubeClient.ANDROID_VR_NO_AUTH.userAgent
-
-                            clientParam.startsWith("ANDROID", ignoreCase = true) -> YouTubeClient.MOBILE.userAgent
-
-                            else -> YouTubeClient.USER_AGENT_WEB
-                        }
-
-                    val builder = request.newBuilder().header("User-Agent", userAgent)
-                    if (isWeb) {
-                        builder.header("Origin", YouTubeClient.ORIGIN_YOUTUBE_MUSIC)
-                        builder.header("Referer", YouTubeClient.REFERER_YOUTUBE_MUSIC)
-                    }
-
-                    chain.proceed(builder.build())
+                    val requestProfile = StreamClientUtils.resolveRequestProfile(request.url)
+                    chain.proceed(
+                        StreamClientUtils.applyRequestProfile(
+                            request.newBuilder(),
+                            requestProfile,
+                        ).build(),
+                    )
                 }
                 .build()
         }
@@ -143,30 +97,28 @@ fun CanvasArtworkPlayer(
             )
         }
     val exoPlayer =
-        remember {
+        remember(initial, mediaSourceFactory) {
             ExoPlayer.Builder(context)
                 .setMediaSourceFactory(mediaSourceFactory)
                 .build()
                 .apply {
-                trackSelectionParameters = trackSelectionParameters
-                    .buildUpon()
-                    .setForceHighestSupportedBitrate(true)
-                    .build()
-                setAudioAttributes(
-                    AudioAttributes
-                        .Builder()
-                        .setUsage(C.USAGE_MEDIA)
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                        .build(),
-                    false,
-                )
-                // Cover-cropping is done by the texture transform matrix below,
-                // so the player itself renders fit; cropping twice would over-zoom.
-                videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
-                volume = 0f
-                repeatMode = Player.REPEAT_MODE_ONE
-                playWhenReady = isPlaying
-            }
+                    setAudioAttributes(
+                        AudioAttributes
+                            .Builder()
+                            .setUsage(C.USAGE_MEDIA)
+                            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                            .build(),
+                        false,
+                    )
+                    volume = 0f
+                    repeatMode = Player.REPEAT_MODE_ONE
+                    trackSelectionParameters =
+                        TrackSelectionParameters
+                            .Builder(context)
+                            .setForceHighestSupportedBitrate(true)
+                            .build()
+                    playWhenReady = isPlaying
+                }
         }
 
     LaunchedEffect(isPlaying) {
@@ -186,56 +138,38 @@ fun CanvasArtworkPlayer(
                         }
                     if (!next.isNullOrBlank()) {
                         currentUrl = next
-                        isVideoReady = false 
+                        isVideoReady = false
                     }
                 }
 
                 override fun onRenderedFirstFrame() {
                     isVideoReady = true
                 }
-
-                override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-                    if (videoSize.width > 0 && videoSize.height > 0) {
-                        currentVideoWidth = videoSize.width
-                        currentVideoHeight = videoSize.height
-                        textureViewRef?.let { tv ->
-                            updateTextureTransform(tv, tv.width, tv.height, videoSize.width, videoSize.height)
-                        }
-                    }
-                }
             }
         exoPlayer.addListener(listener)
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    LaunchedEffect(currentUrl, exoPlayer, clipStartMs, clipEndMs) {
+    LaunchedEffect(currentUrl, exoPlayer) {
         val normalized = currentUrl.trim()
+        isVideoReady = false
+        val lowercaseUrl = normalized.lowercase(Locale.ROOT)
         val mimeType =
             when {
-                normalized.contains("googlevideo.com", ignoreCase = true) ||
-                    normalized.contains("mime=video", ignoreCase = true) ||
-                    normalized.contains(".mp4", ignoreCase = true) ||
-                    normalized.contains("mp4", ignoreCase = true) -> MimeTypes.VIDEO_MP4
-                normalized.contains(".m3u8", ignoreCase = true) ||
-                    normalized.contains("m3u8", ignoreCase = true) -> MimeTypes.APPLICATION_M3U8
-                normalized.contains("apple.com") || normalized.contains("music.apple") -> MimeTypes.APPLICATION_M3U8
-                else -> MimeTypes.VIDEO_MP4
+                lowercaseUrl.contains("m3u8") -> MimeTypes.APPLICATION_M3U8
+                lowercaseUrl.contains("mp4") -> MimeTypes.VIDEO_MP4
+                primary != null && currentUrl == primary -> MimeTypes.APPLICATION_M3U8
+                fallback != null && currentUrl == fallback -> MimeTypes.VIDEO_MP4
+                else -> MimeTypes.APPLICATION_M3U8
             }
 
-        val mediaItemBuilder = MediaItem.Builder().setUri(normalized).setMimeType(mimeType)
-        if (clipStartMs != null && clipEndMs != null && clipEndMs > clipStartMs) {
-            mediaItemBuilder.setClippingConfiguration(
-                MediaItem.ClippingConfiguration.Builder()
-                    .setStartPositionMs(clipStartMs)
-                    .setEndPositionMs(clipEndMs)
-                    .setStartsAtKeyFrame(true)
-                    .build()
-            )
-        }
-        val mediaItem = mediaItemBuilder.build()
+        val mediaItem =
+            MediaItem.Builder()
+                .setUri(normalized)
+                .setMimeType(mimeType)
+                .build()
 
         exoPlayer.stop()
-        isVideoReady = false
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
         exoPlayer.playWhenReady = isPlaying
@@ -250,35 +184,25 @@ fun CanvasArtworkPlayer(
     val alpha by animateFloatAsState(
         targetValue = if (isVideoReady) 1f else 0f,
         animationSpec = tween(durationMillis = 300),
-        label = "canvasAlpha"
+        label = "canvasAlpha",
     )
 
-    AndroidView(
-        factory = { viewContext ->
-            FrameLayout(viewContext).apply {
-                layoutParams = ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-                clipChildren = true
-
-                val textureView =
-                    TextureView(viewContext).apply {
-                        layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-                        addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
-                            val w = right - left
-                            val h = bottom - top
-                            updateTextureTransform(this, w, h, currentVideoWidth, currentVideoHeight)
-                        }
-                    }
-                addView(textureView)
-                textureViewRef = textureView
-                exoPlayer.setVideoTextureView(textureView)
-                setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            }
-        },
-        update = { _ ->
-            textureViewRef?.let { tv ->
-                updateTextureTransform(tv, tv.width, tv.height, currentVideoWidth, currentVideoHeight)
-            }
-        },
+    ContentFrame(
+        player = exoPlayer,
+        surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
+        contentScale = resizeMode.toContentScale(),
+        keepContentOnReset = false,
+        shutter = {},
         modifier = modifier.alpha(alpha),
     )
 }
+
+private fun Int.toContentScale(): ContentScale =
+    when (this) {
+        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> ContentScale.Crop
+        AspectRatioFrameLayout.RESIZE_MODE_FILL -> ContentScale.FillBounds
+        AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH,
+        AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT,
+        AspectRatioFrameLayout.RESIZE_MODE_FIT -> ContentScale.Fit
+        else -> ContentScale.Fit
+    }

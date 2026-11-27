@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.screens.library
 
@@ -40,7 +50,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -54,7 +63,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -64,7 +73,6 @@ import androidx.compose.material3.SheetState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -98,6 +106,7 @@ import com.vela.app.R
 import com.vela.app.constants.CONTENT_TYPE_HEADER
 import com.vela.app.constants.CONTENT_TYPE_SONG
 import com.vela.app.constants.LocalSongsExcludedFoldersKey
+import com.vela.app.constants.LocalSongsIncludedFoldersKey
 import com.vela.app.constants.LocalSongsMinDurationSecondsKey
 import com.vela.app.constants.LocalSongsSortDescendingKey
 import com.vela.app.constants.LocalSongsSortTypeKey
@@ -105,7 +114,6 @@ import com.vela.app.extensions.toMediaItem
 import com.vela.app.extensions.togglePlayPause
 import com.vela.app.localmedia.LocalSongScanConfig
 import com.vela.app.localmedia.SupportedLocalAudio
-import com.vela.app.utils.launchSafely
 import com.vela.app.playback.queues.ListQueue
 import com.vela.app.ui.component.LocalMenuState
 import com.vela.app.ui.component.SongListItem
@@ -127,9 +135,6 @@ import kotlin.math.roundToInt
 @Composable
 fun LocalSongScreen(
     navController: NavController,
-    onBack: () -> Unit = { navController.navigateUp() },
-    isEmbedded: Boolean = false,
-    filterContent: (@Composable () -> Unit)? = null,
     viewModel: LocalSongsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -152,14 +157,19 @@ fun LocalSongScreen(
         LocalSongsMinDurationSecondsKey,
         0,
     )
+    val (includedFolders, onIncludedFoldersChange) = rememberPreference(
+        LocalSongsIncludedFoldersKey,
+        emptySet<String>(),
+    )
     val (excludedFolders, onExcludedFoldersChange) = rememberPreference(
         LocalSongsExcludedFoldersKey,
         emptySet<String>(),
     )
     val sortType = remember(sortTypeName) { LocalSongSortType.valueOf(sortTypeName) }
-    val scanConfig = remember(minimumDurationSeconds, excludedFolders) {
+    val scanConfig = remember(minimumDurationSeconds, includedFolders, excludedFolders) {
         LocalSongScanConfig(
             minimumDurationSeconds = minimumDurationSeconds,
+            includedFolders = includedFolders,
             excludedFolders = excludedFolders,
         )
     }
@@ -184,12 +194,31 @@ fun LocalSongScreen(
         hasStoragePermission = granted
     }
 
+    val includedFolderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        val normalizedFolder = uri?.toFolderEntry() ?: return@rememberLauncherForActivityResult
+        onIncludedFoldersChange(
+            LocalSongScanConfig.deduplicateFolderEntries(includedFolders + normalizedFolder),
+        )
+        onExcludedFoldersChange(
+            excludedFolders.filterNot {
+                LocalSongScanConfig.normalizeFolderEntry(it).equals(normalizedFolder, ignoreCase = true)
+            }.toSet(),
+        )
+    }
+
     val excludedFolderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
-        val normalizedFolder = uri?.toExcludedFolderEntry() ?: return@rememberLauncherForActivityResult
+        val normalizedFolder = uri?.toFolderEntry() ?: return@rememberLauncherForActivityResult
         onExcludedFoldersChange(
             LocalSongScanConfig.deduplicateFolderEntries(excludedFolders + normalizedFolder),
+        )
+        onIncludedFoldersChange(
+            includedFolders.filterNot {
+                LocalSongScanConfig.normalizeFolderEntry(it).equals(normalizedFolder, ignoreCase = true)
+            }.toSet(),
         )
     }
 
@@ -245,9 +274,12 @@ fun LocalSongScreen(
             scanState = scanState,
             minimumDurationSeconds = minimumDurationSeconds,
             onMinimumDurationSecondsChange = onMinimumDurationSecondsChange,
+            includedFolders = includedFolders,
+            onIncludedFoldersChange = onIncludedFoldersChange,
+            onAddIncludedFolder = { includedFolderPickerLauncher.launch(null) },
             excludedFolders = excludedFolders,
             onExcludedFoldersChange = onExcludedFoldersChange,
-            onAddExcludedFolder = { excludedFolderPickerLauncher.launchSafely(null, context) },
+            onAddExcludedFolder = { excludedFolderPickerLauncher.launch(null) },
             sheetState = scanSheetState,
             onDismiss = { showScanSheet = false },
             onPrimaryAction = {
@@ -260,68 +292,68 @@ fun LocalSongScreen(
         )
     }
 
-    val searchBarContent = @Composable {
-        SearchBar(
-            inputField = {
-                SearchBarDefaults.InputField(
-                    query = query,
-                    onQueryChange = { query = it },
-                    onSearch = { isSearchActive = false },
-                    expanded = false,
-                    onExpandedChange = {},
-                    placeholder = {
-                        Text(text = stringResource(R.string.search_library))
-                    },
-                    leadingIcon = {
-                        IconButton(
-                            onClick = {
-                                query = ""
-                                isSearchActive = false
-                            },
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.arrow_back),
-                                contentDescription = stringResource(R.string.back_button_desc),
+    Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
+        containerColor = MaterialTheme.colorScheme.surface,
+        topBar = {
+            AnimatedContent(
+                targetState = isSearchActive,
+                transitionSpec = {
+                    fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) togetherWith
+                        fadeOut(spring(stiffness = Spring.StiffnessMediumLow))
+                },
+                label = "localSongTopBar",
+            ) { searching ->
+                if (searching) {
+                    SearchBar(
+                        inputField = {
+                            SearchBarDefaults.InputField(
+                                query = query,
+                                onQueryChange = { query = it },
+                                onSearch = { isSearchActive = false },
+                                expanded = false,
+                                onExpandedChange = {},
+                                placeholder = {
+                                    Text(text = stringResource(R.string.search_library))
+                                },
+                                leadingIcon = {
+                                    IconButton(
+                                        onClick = {
+                                            query = ""
+                                            isSearchActive = false
+                                        },
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.arrow_back),
+                                            contentDescription = stringResource(R.string.back_button_desc),
+                                        )
+                                    }
+                                },
+                                trailingIcon = if (query.isNotEmpty()) {
+                                    {
+                                        IconButton(onClick = { query = "" }) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.close),
+                                                contentDescription = stringResource(R.string.close),
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    null
+                                },
                             )
-                        }
-                    },
-                    trailingIcon = if (query.isNotEmpty()) {
-                        {
-                            IconButton(onClick = { query = "" }) {
-                                Icon(
-                                    painter = painterResource(R.drawable.close),
-                                    contentDescription = stringResource(R.string.close),
-                                )
-                            }
-                        }
-                    } else {
-                        null
-                    },
-                )
-            },
-            expanded = false,
-            onExpandedChange = {},
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(top = 8.dp, bottom = 4.dp),
-            windowInsets = WindowInsets(0.dp),
-        ) {}
-    }
-
-    val topBarContent = @Composable {
-        AnimatedContent(
-            targetState = isSearchActive,
-            transitionSpec = {
-                fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) togetherWith
-                    fadeOut(spring(stiffness = Spring.StiffnessMediumLow))
-            },
-            label = "localSongTopBar",
-        ) { searching ->
-            if (searching) {
-                searchBarContent()
-            } else {
-                    LargeTopAppBar(
+                        },
+                        expanded = false,
+                        onExpandedChange = {},
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(top = 8.dp, bottom = 4.dp),
+                    ) {}
+                } else {
+                    LargeFlexibleTopAppBar(
                         title = {
                             Text(
                                 text = stringResource(R.string.local_history),
@@ -331,7 +363,7 @@ fun LocalSongScreen(
                             )
                         },
                         navigationIcon = {
-                            IconButton(onClick = onBack) {
+                            IconButton(onClick = navController::navigateUp) {
                                 Icon(
                                     painter = painterResource(R.drawable.arrow_back),
                                     contentDescription = null,
@@ -357,47 +389,22 @@ fun LocalSongScreen(
                             scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
                         ),
                         scrollBehavior = scrollBehavior,
-                        windowInsets = TopAppBarDefaults.windowInsets,
                     )
+                }
             }
-        }
-    }
-
-    val mainContent = @Composable { paddingValues: PaddingValues ->
+        },
+    ) { paddingValues ->
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
             verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding =
-                if (isEmbedded) {
-                    LocalPlayerAwareWindowInsets.current.asPaddingValues()
-                } else {
-                    PaddingValues(
-                        top = 12.dp,
-                        bottom = bottomContentPadding,
-                    )
-                },
+            contentPadding = PaddingValues(
+                top = 12.dp,
+                bottom = bottomContentPadding,
+            ),
         ) {
-            if (isEmbedded && filterContent != null) {
-                item(
-                    key = "filter",
-                    contentType = CONTENT_TYPE_HEADER,
-                ) {
-                    filterContent()
-                }
-            }
-
-            if (isEmbedded && isSearchActive) {
-                item(
-                    key = "embedded_search",
-                    contentType = CONTENT_TYPE_HEADER,
-                ) {
-                    searchBarContent()
-                }
-            }
-
             item(
                 key = "controls",
                 contentType = CONTENT_TYPE_HEADER,
@@ -408,8 +415,6 @@ fun LocalSongScreen(
                     visibleSongCount = visibleSongs.size,
                     onSortTypeChange = { onSortTypeNameChange(it.name) },
                     onSortDescendingChange = onSortDescendingChange,
-                    onSearchClick = if (isEmbedded) { { isSearchActive = !isSearchActive } } else null,
-                    onScanClick = if (isEmbedded) { { showScanSheet = true } } else null,
                 )
             }
 
@@ -418,19 +423,7 @@ fun LocalSongScreen(
                     key = "empty",
                     contentType = CONTENT_TYPE_HEADER,
                 ) {
-                    LocalSongEmptyState(
-                        query = query,
-                        scanState = scanState,
-                        hasStoragePermission = hasStoragePermission,
-                        onScan = {
-                            if (hasStoragePermission) {
-                                viewModel.scanDevice(scanConfig)
-                            } else {
-                                permissionLauncher.launch(storagePermission)
-                            }
-                        },
-                        onConfigureFolders = { showScanSheet = true },
-                    )
+                    LocalSongEmptyState(query = query)
                 }
             } else {
                 item(
@@ -449,6 +442,7 @@ fun LocalSongScreen(
                         song = song,
                         showInLibraryIcon = false,
                         showDownloadIcon = false,
+                        showSongIconPlaceholder = true,
                         isActive = song.id == mediaMetadata?.id,
                         isPlaying = isPlaying,
                         trailingContent = {
@@ -507,22 +501,6 @@ fun LocalSongScreen(
             }
         }
     }
-
-    if (isEmbedded) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            mainContent(PaddingValues(0.dp))
-        }
-    } else {
-        Scaffold(
-            modifier = Modifier
-                .fillMaxSize()
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
-            containerColor = MaterialTheme.colorScheme.surface,
-            topBar = topBarContent,
-        ) { paddingValues ->
-            mainContent(paddingValues)
-        }
-    }
 }
 
 @Composable
@@ -563,14 +541,12 @@ private fun LocalSongControlsCard(
     visibleSongCount: Int,
     onSortTypeChange: (LocalSongSortType) -> Unit,
     onSortDescendingChange: (Boolean) -> Unit,
-    onSearchClick: (() -> Unit)? = null,
-    onScanClick: (() -> Unit)? = null,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 28.dp, vertical = 8.dp),
     ) {
         SortHeader(
             sortType = sortType,
@@ -593,132 +569,50 @@ private fun LocalSongControlsCard(
             text = pluralStringResource(R.plurals.n_song, visibleSongCount, visibleSongCount),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier.padding(end = 4.dp),
         )
-
-        if (onSearchClick != null) {
-            IconButton(onClick = onSearchClick, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    painter = painterResource(R.drawable.search),
-                    contentDescription = stringResource(R.string.search),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-        }
-
-        if (onScanClick != null) {
-            IconButton(onClick = onScanClick, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    painter = painterResource(R.drawable.tune),
-                    contentDescription = stringResource(R.string.local_songs_scan_title),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-        }
     }
 }
 
 @Composable
 private fun LocalSongEmptyState(
     query: String,
-    scanState: LocalSongsScanState,
-    hasStoragePermission: Boolean,
-    onScan: () -> Unit,
-    onConfigureFolders: () -> Unit,
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 40.dp),
+            .padding(horizontal = 16.dp),
     ) {
-        Icon(
-            painter = painterResource(
-                if (query.isNotBlank()) R.drawable.search else R.drawable.music_note
-            ),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            modifier = Modifier.size(56.dp),
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Text(
-            text = if (query.isBlank()) {
-                stringResource(R.string.local_songs_empty_title)
-            } else {
-                stringResource(R.string.local_songs_no_matches_title)
-            },
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = if (query.isBlank()) {
-                stringResource(R.string.local_songs_empty_desc)
-            } else {
-                stringResource(R.string.local_songs_no_matches_desc)
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-
-        if (query.isBlank()) {
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Button(
-                onClick = onScan,
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            ) {
-                Icon(
-                    painter = painterResource(
-                        if (scanState.isScanning) R.drawable.sync else R.drawable.search
-                    ),
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (scanState.isScanning) {
-                        stringResource(R.string.scanning_device)
-                    } else if (!hasStoragePermission) {
-                        stringResource(R.string.allow_storage_access)
-                    } else {
-                        stringResource(R.string.scan_device)
-                    },
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            TextButton(
-                onClick = onConfigureFolders,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.tune),
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = stringResource(R.string.local_songs_scan_filters_title),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+        ) {
+            Icon(
+                painter = painterResource(if (query.isBlank()) R.drawable.music_note else R.drawable.search),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp),
+            )
+            Text(
+                text = if (query.isBlank()) {
+                    stringResource(R.string.local_songs_empty_title)
+                } else {
+                    stringResource(R.string.local_songs_no_matches_title)
+                },
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = if (query.isBlank()) {
+                    stringResource(R.string.local_songs_empty_desc)
+                } else {
+                    stringResource(R.string.local_songs_no_matches_desc)
+                },
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -730,6 +624,9 @@ private fun LocalSongScanSheet(
     scanState: LocalSongsScanState,
     minimumDurationSeconds: Int,
     onMinimumDurationSecondsChange: (Int) -> Unit,
+    includedFolders: Set<String>,
+    onIncludedFoldersChange: (Set<String>) -> Unit,
+    onAddIncludedFolder: () -> Unit,
     excludedFolders: Set<String>,
     onExcludedFoldersChange: (Set<String>) -> Unit,
     onAddExcludedFolder: () -> Unit,
@@ -740,6 +637,11 @@ private fun LocalSongScanSheet(
     val lastSummary = scanState.lastSummary
     val hasError = scanState.errorMessage != null
     val hasSummary = lastSummary != null
+    val sanitizedIncludedFolders = remember(includedFolders) {
+        LocalSongScanConfig.deduplicateFolderEntries(includedFolders)
+            .toList()
+            .sortedWith(String.CASE_INSENSITIVE_ORDER)
+    }
     val sanitizedExcludedFolders = remember(excludedFolders) {
         LocalSongScanConfig.deduplicateFolderEntries(excludedFolders)
             .toList()
@@ -1002,6 +904,47 @@ private fun LocalSongScanSheet(
                             enabled = !scanState.isScanning,
                             modifier = Modifier.fillMaxWidth(),
                         )
+                    }
+
+                    LocalSongScanSettingCard(
+                        iconRes = R.drawable.snippet_folder,
+                        title = stringResource(R.string.local_songs_scan_included_folders_title),
+                        description = stringResource(R.string.local_songs_scan_included_folders_desc),
+                        actionLabel = stringResource(R.string.local_songs_scan_included_folders_add),
+                        onActionClick = {
+                            if (!scanState.isScanning) {
+                                onAddIncludedFolder()
+                            }
+                        },
+                    ) {
+                        if (sanitizedIncludedFolders.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.local_songs_scan_included_folders_empty),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                sanitizedIncludedFolders.forEach { folderPath ->
+                                    LocalSongFolderChip(
+                                        folderPath = folderPath,
+                                        enabled = !scanState.isScanning,
+                                        onRemove = {
+                                            onIncludedFoldersChange(
+                                                includedFolders.filterNot {
+                                                    LocalSongScanConfig.normalizeFolderEntry(it)
+                                                        .equals(folderPath, ignoreCase = true)
+                                                }.toSet(),
+                                            )
+                                        },
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     LocalSongScanSettingCard(
@@ -1335,7 +1278,7 @@ private fun ScanSheetInfoRow(
     }
 }
 
-private fun Uri.toExcludedFolderEntry(): String? {
+private fun Uri.toFolderEntry(): String? {
     if (!DocumentsContract.isTreeUri(this)) return null
     val treeDocumentId = runCatching { DocumentsContract.getTreeDocumentId(this) }
         .getOrNull()

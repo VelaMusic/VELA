@@ -1,94 +1,44 @@
-/**
- * Metrolist Project (C) 2026
- * Licensed under GPL-3.0 | See git history for contributors
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
  */
 
 package com.vela.app.widget
 
-import android.appwidget.AppWidgetManager
-import android.appwidget.AppWidgetProvider
 import android.content.Context
-import android.content.Intent
-import android.os.Build
-import android.os.Bundle
-import com.vela.app.playback.MusicService
+import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
-open class MusicWidgetReceiver : AppWidgetProvider() {
+class MusicWidgetReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget = MusicWidget()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    override fun onEnabled(context: Context) {
+        super.onEnabled(context)
+        scope.launch {
+            requestPlaybackWidgetUpdate(context)
+        }
+    }
 
     override fun onUpdate(
         context: Context,
-        appWidgetManager: AppWidgetManager,
-        appWidgetIds: IntArray
+        appWidgetManager: android.appwidget.AppWidgetManager,
+        appWidgetIds: IntArray,
     ) {
-        // Only trigger update through MusicService if it's already running
-        // This prevents BackgroundServiceStartNotAllowedException on Android 14+
-        if (MusicService.isRunning) {
-            val intent = Intent(context, MusicService::class.java).apply {
-                action = ACTION_UPDATE_WIDGET
-            }
-            try {
-                context.startService(intent)
-            } catch (e: Exception) {
-                // Service might be restricted in background
-            }
+        super.onUpdate(context, appWidgetManager, appWidgetIds)
+        scope.launch {
+            requestPlaybackWidgetUpdate(context)
         }
-        // If service is not running, widget shows default layout until user opens app
-    }
-
-    override fun onAppWidgetOptionsChanged(
-        context: Context,
-        appWidgetManager: AppWidgetManager,
-        appWidgetId: Int,
-        newOptions: Bundle
-    ) {
-        super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        // Trigger widget update when size changes
-        if (MusicService.isRunning) {
-            val intent = Intent(context, MusicService::class.java).apply {
-                action = ACTION_UPDATE_WIDGET
-            }
-            try {
-                context.startService(intent)
-            } catch (e: Exception) {
-                // Service might be restricted in background
-            }
-        }
-    }
-
-    override fun onReceive(context: Context, intent: Intent) {
-        super.onReceive(context, intent)
-
-        when (intent.action) {
-            ACTION_PLAY_PAUSE, ACTION_LIKE, ACTION_NEXT, ACTION_PREVIOUS,
-            ACTION_SHUFFLE, ACTION_REPEAT, ACTION_SKIP_TO_QUEUE_ITEM -> {
-                // User interactions from widget buttons can start the service
-                // Android allows starting FGS from widget PendingIntent clicks
-                val serviceIntent = Intent(context, MusicService::class.java).apply {
-                    action = intent.action
-                    putExtras(intent)
-                }
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startService(serviceIntent)
-                    } else {
-                        context.startService(serviceIntent)
-                    }
-                } catch (e: Exception) {
-                    // Service might be restricted in background
-                }
-            }
-        }
-    }
-
-    companion object {
-        const val ACTION_PLAY_PAUSE = "com.vela.app.widget.PLAY_PAUSE"
-        const val ACTION_LIKE = "com.vela.app.widget.LIKE"
-        const val ACTION_NEXT = "com.vela.app.widget.NEXT"
-        const val ACTION_PREVIOUS = "com.vela.app.widget.PREVIOUS"
-        const val ACTION_SHUFFLE = "com.vela.app.widget.SHUFFLE"
-        const val ACTION_REPEAT = "com.vela.app.widget.REPEAT"
-        const val ACTION_SKIP_TO_QUEUE_ITEM = "com.vela.app.widget.SKIP_TO_QUEUE_ITEM"
-        const val ACTION_UPDATE_WIDGET = "com.vela.app.widget.UPDATE_WIDGET"
-        const val EXTRA_QUEUE_INDEX = "extra_queue_index"
     }
 }

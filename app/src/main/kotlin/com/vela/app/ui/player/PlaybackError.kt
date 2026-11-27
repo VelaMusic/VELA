@@ -1,200 +1,279 @@
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
 
 package com.vela.app.ui.player
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.media3.common.PlaybackException
+import android.widget.Toast
+import com.vela.app.MainActivity
 import com.vela.app.R
+import com.vela.app.constants.DataSyncIdKey
+import com.vela.app.constants.InnerTubeCookieKey
+import com.vela.app.innertube.utils.hasYouTubeLoginCookie
+import com.vela.app.utils.openYouTubeMusicUrl
+import com.vela.app.utils.rememberPreference
 
 @Composable
 fun PlaybackError(
     error: PlaybackException,
     retry: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    
-    val rawErrorMessage = error.cause?.cause?.message 
-        ?: error.cause?.message 
-        ?: error.message 
-        ?: stringResource(R.string.error_unknown)
-    
-    
-    
-    // The HTTP status says what actually happened: 429/503 is the streaming host pacing requests and
-    // 403 is usually an expired link. Neither means the track does not exist, so the age-restricted
-    // wording (previously triggered by any bad HTTP status and by any message containing "age")
-    // must not be used for them.
-    val httpStatus =
-        Regex("""(?:Response code|HTTP)\D{0,2}(\d{3})""")
-            .find(rawErrorMessage)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toIntOrNull()
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    val fallbackUnknown = stringResource(R.string.error_unknown)
+    val fallbackNoInternet = stringResource(R.string.error_no_internet)
+    val fallbackTimeout = stringResource(R.string.error_timeout)
+    val fallbackNoStream = stringResource(R.string.error_no_stream)
+    val fallbackMalformedStream = stringResource(R.string.error_malformed_stream)
+    val retryText = stringResource(R.string.retry)
+    val copyText = stringResource(R.string.copy)
+    val copiedText = stringResource(R.string.copied)
+    val openYouTubeMusicText = stringResource(R.string.open_youtube_music)
+    val loginText = stringResource(R.string.login)
+    val signInToYouTubeMusicText = stringResource(R.string.login)
+    val couldNotOpenYouTubeMusicText = stringResource(R.string.could_not_open_youtube_music)
+    val errorInfo = remember(error) { error.toPlaybackErrorInfo() }
+    val httpCode = errorInfo.httpCode
+    val innerTubeCookie by rememberPreference(InnerTubeCookieKey, "")
+    val dataSyncId by rememberPreference(DataSyncIdKey, "")
+    // Anonymous playback is the default and expected path: songs stream without
+    // signing in, exactly like upstream ArchiveTune. Only fall back to a login
+    // prompt when the track itself cannot be played anonymously (age-gated,
+    // private, members-only), so a transient stream failure never bullies the
+    // user into signing in. A signed-out failure therefore offers Retry first.
+    val isSignedIn = hasYouTubeLoginCookie(innerTubeCookie) && dataSyncId.isNotBlank()
+    val requiresSignIn =
+        errorInfo.kind == PlaybackErrorKind.ConfirmationRequired && isSignedIn
+    val anonymousUnavailable =
+        errorInfo.kind == PlaybackErrorKind.ConfirmationRequired && !isSignedIn
+    val title =
+        when {
+            anonymousUnavailable -> stringResource(R.string.sign_in_required_title)
+            errorInfo.kind == PlaybackErrorKind.LoginRefreshRequired -> stringResource(R.string.playback_login_refresh_required)
+            errorInfo.kind == PlaybackErrorKind.ConfirmationRequired -> stringResource(R.string.playback_confirmation_required)
+            else -> fallbackUnknown
+        }
+    val reason =
+        when {
+            anonymousUnavailable -> stringResource(R.string.sign_in_required_reason)
+            errorInfo.kind == PlaybackErrorKind.LoginRefreshRequired -> stringResource(R.string.playback_requires_youtube_music_login_refresh)
+            errorInfo.kind == PlaybackErrorKind.ConfirmationRequired -> stringResource(R.string.playback_requires_youtube_music_confirmation)
+            errorInfo.kind == PlaybackErrorKind.NoInternet -> fallbackNoInternet
+            errorInfo.kind == PlaybackErrorKind.Timeout -> fallbackTimeout
+            errorInfo.kind == PlaybackErrorKind.NoStream -> fallbackNoStream
+            errorInfo.kind == PlaybackErrorKind.MalformedStream -> fallbackMalformedStream
+            errorInfo.kind == PlaybackErrorKind.Decoder -> "$fallbackUnknown (code ${error.errorCode})"
+            errorInfo.kind == PlaybackErrorKind.Http -> "$fallbackUnknown (HTTP $httpCode)"
+            else -> error.cause?.message?.takeIf { it.isNotBlank() }
+                ?: error.message?.takeIf { it.isNotBlank() }
+                ?: fallbackUnknown
+        }
 
-    val isServerBusy =
-        httpStatus == 429 ||
-            (httpStatus != null && httpStatus >= 500) ||
-            rawErrorMessage.contains("Too Many Requests", ignoreCase = true) ||
-            rawErrorMessage.contains("Service Unavailable", ignoreCase = true)
+    val details =
+        remember(error, reason, httpCode) {
+            buildString {
+                appendLine(reason)
+                appendLine("Code: ${error.errorCode}")
+                if (httpCode != null) appendLine("HTTP: $httpCode")
 
-    val isAgeRestricted =
-        !isServerBusy &&
-            (rawErrorMessage.contains("Sign in to confirm your age", ignoreCase = true) ||
-                rawErrorMessage.contains("confirm your age", ignoreCase = true) ||
-                rawErrorMessage.contains("LOGIN_REQUIRED", ignoreCase = true) ||
-                rawErrorMessage.contains("age-restricted", ignoreCase = true) ||
-                rawErrorMessage.contains("age restricted", ignoreCase = true))
+                val rootMessage = error.message?.trim().orEmpty()
+                if (rootMessage.isNotBlank() && rootMessage != reason) {
+                    appendLine()
+                    appendLine("Message: $rootMessage")
+                }
 
-    val isNetworkError =
-        error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
-            rawErrorMessage.contains("SocketTimeoutException", ignoreCase = true) ||
-            rawErrorMessage.contains("ConnectException", ignoreCase = true) ||
-            rawErrorMessage.contains("UnknownHostException", ignoreCase = true)
+                var t: Throwable? = error.cause
+                var depth = 0
+                while (t != null && depth < 6) {
+                    val name = t.javaClass.simpleName.ifBlank { t.javaClass.name }
+                    val msg = t.message?.trim().orEmpty()
+                    appendLine()
+                    appendLine("Cause: $name${if (msg.isNotBlank()) ": $msg" else ""}")
+                    t = t.cause
+                    depth++
+                }
+            }.trim()
+        }
 
-    val errorMessage = if (isServerBusy) {
-        "The streaming server is busy (HTTP ${httpStatus ?: 429}). Tap Retry in a few seconds: the track itself is fine."
-    } else if (isAgeRestricted) {
-        "This track is unplayable or age-restricted on YouTube Music. We are working on fixing this issue."
-    } else if (isNetworkError) {
-        "Connection timed out while loading audio stream. Please check your internet connection or tap Retry."
-    } else if (httpStatus == 403) {
-        "The stream link expired (HTTP 403). Tap Retry to load a fresh one."
-    } else {
-        rawErrorMessage
-    }
-    
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(16.dp)
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.86f),
+        tonalElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        
-        Icon(
-            painter = painterResource(R.drawable.error),
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.error,
-            modifier = Modifier.size(48.dp)
-        )
-        
-        Spacer(modifier = Modifier.height(12.dp))
-        
-        
-        Text(
-            text = stringResource(R.string.error_playback_failed),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.error,
-            textAlign = TextAlign.Center
-        )
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        
-        Text(
-            text = errorMessage,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis
-        )
-        
-        Spacer(modifier = Modifier.height(4.dp))
-        
-        
-        Text(
-            text = "Code: ${getErrorCodeName(error.errorCode)} (${error.errorCode})",
-            style = MaterialTheme.typography.bodySmall.copy(
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            textAlign = TextAlign.Center
-        )
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        
-        Button(
-            onClick = retry,
-            shape = RoundedCornerShape(20.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
-            )
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Icon(
-                painter = painterResource(R.drawable.replay),
-                contentDescription = null,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(text = stringResource(R.string.retry))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.Top,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.info),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                )
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.06f),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = details,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.92f),
+                    modifier = Modifier.padding(12.dp),
+                    maxLines = 12,
+                    overflow = TextOverflow.Clip,
+                )
+            }
+
+            // Signed-out users get Retry first; signing in stays optional and is
+            // only offered when the track genuinely needs an account.
+            val recoveryUrl =
+                errorInfo.loginRecoveryUrl ?: if (anonymousUnavailable) YOUTUBE_MUSIC_LOGIN_URL else null
+            val recoveryAction =
+                when {
+                    anonymousUnavailable -> PlaybackRecoveryAction.RefreshLogin
+                    requiresSignIn && errorInfo.loginRecoveryUrl != null -> PlaybackRecoveryAction.RefreshLogin
+                    else -> errorInfo.recoveryAction
+                }
+            if (recoveryUrl != null && recoveryAction != null) {
+                Button(
+                    onClick = {
+                        when (recoveryAction) {
+                            PlaybackRecoveryAction.RefreshLogin -> {
+                                val deepLink = Uri.parse("vela://login?url=${Uri.encode(recoveryUrl)}")
+                                val loginIntent =
+                                    Intent(Intent.ACTION_VIEW, deepLink, context, MainActivity::class.java).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                        addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                                    }
+                                runCatching { context.startActivity(loginIntent) }
+                            }
+                            PlaybackRecoveryAction.OpenYouTubeMusic -> {
+                                if (!context.openYouTubeMusicUrl(recoveryUrl)) {
+                                    Toast.makeText(context, couldNotOpenYouTubeMusicText, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors =
+                        ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.onErrorContainer,
+                            contentColor = MaterialTheme.colorScheme.errorContainer,
+                        ),
+                    shapes = ButtonDefaults.shapes(),
+                ) {
+                    Text(
+                        text = when (recoveryAction) {
+                            PlaybackRecoveryAction.RefreshLogin ->
+                                if (anonymousUnavailable) signInToYouTubeMusicText else loginText
+                            PlaybackRecoveryAction.OpenYouTubeMusic -> openYouTubeMusicText
+                        }
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(
+                    onClick = retry,
+                    modifier = if (recoveryAction == null) Modifier.weight(1f) else Modifier,
+                    colors =
+                        ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        ),
+                    shapes = ButtonDefaults.shapes(),
+                ) {
+                    Text(text = retryText)
+                }
+
+                Button(
+                    onClick = {
+                        clipboard.setText(AnnotatedString(details))
+                        Toast.makeText(context, copiedText, Toast.LENGTH_SHORT).show()
+                    },
+                    colors =
+                        ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        ),
+                    shapes = ButtonDefaults.shapes(),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.select_all),
+                        contentDescription = null,
+                    )
+                    androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+                    Text(text = copyText)
+                }
+            }
         }
     }
 }
 
-
-private fun getErrorCodeName(errorCode: Int): String {
-    return when (errorCode) {
-        PlaybackException.ERROR_CODE_UNSPECIFIED -> "UNSPECIFIED"
-        PlaybackException.ERROR_CODE_REMOTE_ERROR -> "REMOTE_ERROR"
-        PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW -> "BEHIND_LIVE_WINDOW"
-        PlaybackException.ERROR_CODE_TIMEOUT -> "TIMEOUT"
-        PlaybackException.ERROR_CODE_FAILED_RUNTIME_CHECK -> "FAILED_RUNTIME_CHECK"
-        PlaybackException.ERROR_CODE_IO_UNSPECIFIED -> "IO_UNSPECIFIED"
-        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "IO_NETWORK_CONNECTION_FAILED"
-        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "IO_NETWORK_CONNECTION_TIMEOUT"
-        PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE -> "IO_INVALID_HTTP_CONTENT_TYPE"
-        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "IO_BAD_HTTP_STATUS"
-        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "IO_FILE_NOT_FOUND"
-        PlaybackException.ERROR_CODE_IO_NO_PERMISSION -> "IO_NO_PERMISSION"
-        PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED -> "IO_CLEARTEXT_NOT_PERMITTED"
-        PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE -> "IO_READ_POSITION_OUT_OF_RANGE"
-        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> "PARSING_CONTAINER_MALFORMED"
-        PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> "PARSING_MANIFEST_MALFORMED"
-        PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "PARSING_CONTAINER_UNSUPPORTED"
-        PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED -> "PARSING_MANIFEST_UNSUPPORTED"
-        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "DECODER_INIT_FAILED"
-        PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED -> "DECODER_QUERY_FAILED"
-        PlaybackException.ERROR_CODE_DECODING_FAILED -> "DECODING_FAILED"
-        PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES -> "DECODING_FORMAT_EXCEEDS_CAPABILITIES"
-        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> "DECODING_FORMAT_UNSUPPORTED"
-        PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED -> "AUDIO_TRACK_INIT_FAILED"
-        PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED -> "AUDIO_TRACK_WRITE_FAILED"
-        PlaybackException.ERROR_CODE_DRM_UNSPECIFIED -> "DRM_UNSPECIFIED"
-        PlaybackException.ERROR_CODE_DRM_SCHEME_UNSUPPORTED -> "DRM_SCHEME_UNSUPPORTED"
-        PlaybackException.ERROR_CODE_DRM_PROVISIONING_FAILED -> "DRM_PROVISIONING_FAILED"
-        PlaybackException.ERROR_CODE_DRM_CONTENT_ERROR -> "DRM_CONTENT_ERROR"
-        PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED -> "DRM_LICENSE_ACQUISITION_FAILED"
-        PlaybackException.ERROR_CODE_DRM_DISALLOWED_OPERATION -> "DRM_DISALLOWED_OPERATION"
-        PlaybackException.ERROR_CODE_DRM_SYSTEM_ERROR -> "DRM_SYSTEM_ERROR"
-        PlaybackException.ERROR_CODE_DRM_DEVICE_REVOKED -> "DRM_DEVICE_REVOKED"
-        PlaybackException.ERROR_CODE_DRM_LICENSE_EXPIRED -> "DRM_LICENSE_EXPIRED"
-        else -> "UNKNOWN_ERROR_$errorCode"
-    }
-}
+private const val YOUTUBE_MUSIC_LOGIN_URL =
+    "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com"

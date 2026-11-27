@@ -1,30 +1,57 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.viewmodels
 
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.music.innertube.YouTube
-import com.music.innertube.models.AlbumItem
+import com.vela.app.innertube.YouTube
+import com.vela.app.innertube.models.AlbumItem
 import com.vela.app.db.MusicDatabase
 import com.vela.app.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import com.vela.app.utils.Wikipedia
-import com.vela.app.utils.AppleMusicAboutAlbum
 import javax.inject.Inject
+
+sealed interface AlbumUiState {
+    data object Loading : AlbumUiState
+
+    data object Content : AlbumUiState
+
+    data object Empty : AlbumUiState
+
+    data class Error(
+        val isNotFound: Boolean = false,
+    ) : AlbumUiState
+}
+
+private sealed interface FetchState {
+    data object Pending : FetchState
+    data object Success : FetchState
+    data class Failed(val isNotFound: Boolean = false) : FetchState
+}
 
 @HiltViewModel
 class AlbumViewModel
 @Inject
 constructor(
-    database: MusicDatabase,
+    private val database: MusicDatabase,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     val albumId = savedStateHandle.get<String>("albumId")!!
@@ -34,89 +61,51 @@ constructor(
             .albumWithSongs(albumId)
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     var otherVersions = MutableStateFlow<List<AlbumItem>>(emptyList())
-    var releasesForYou = MutableStateFlow<List<AlbumItem>>(emptyList())
-    var description = MutableStateFlow<String?>(null)
-    var descriptionRuns = MutableStateFlow<List<com.music.innertube.models.Run>?>(null)
+
+    private val _fetchState = MutableStateFlow<FetchState>(FetchState.Pending)
+
+    val uiState: StateFlow<AlbumUiState> =
+        combine(albumWithSongs, _fetchState) { data, fetch ->
+            when {
+                data != null && data.songs.isNotEmpty() -> AlbumUiState.Content
+                fetch is FetchState.Pending -> AlbumUiState.Loading
+                fetch is FetchState.Failed && data == null -> AlbumUiState.Error(fetch.isNotFound)
+                fetch is FetchState.Success && data != null && data.songs.isEmpty() -> AlbumUiState.Empty
+                fetch is FetchState.Failed && data != null && data.songs.isNotEmpty() -> AlbumUiState.Content
+                else -> AlbumUiState.Loading
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, AlbumUiState.Loading)
 
     init {
+        retry()
+    }
+
+    fun retry() {
         viewModelScope.launch {
+            _fetchState.value = FetchState.Pending
             val album = database.album(albumId).first()
-            if (album?.description != null) {
-                description.value = album.description
-            }
             YouTube
                 .album(albumId)
                 .onSuccess {
                     playlistId.value = it.album.playlistId
                     otherVersions.value = it.otherVersions
-                    releasesForYou.value = it.releasesForYou
-                    if (it.description != null) {
-                        description.value = it.description
-                    }
-                    descriptionRuns.value = it.descriptionRuns
-                    database.transaction {
+                    database.withTransaction {
                         if (album == null) {
                             insert(it)
                         } else {
                             update(album.album, it, album.artists)
                         }
                     }
-
-                    val albumArtists = it.album.artists
-                    if (albumArtists?.size == 1) {
-                        albumArtists.firstOrNull()?.id?.let { artistId ->
-                            viewModelScope.launch(Dispatchers.IO) {
-                                val artistEntity = database.getArtistById(artistId)
-                                if (artistEntity?.thumbnailUrl == null) {
-                                    YouTube.artist(artistId).onSuccess { artistPage ->
-                                        database.query {
-                                            getArtistById(artistId)?.let { currentArtist ->
-                                                update(currentArtist, artistPage)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    if (description.value == null && descriptionRuns.value == null) {
-                        viewModelScope.launch(Dispatchers.IO) {
-                            val artistName = album?.artists?.firstOrNull()?.name 
-                                ?: database.albumWithSongs(albumId).first()?.artists?.firstOrNull()?.name
-                            val wikiDescription = Wikipedia.fetchAlbumInfo(it.album.title, artistName)
-                            if (wikiDescription != null) {
-                                description.value = wikiDescription
-                                val currentAlbum = database.album(albumId).first()
-                                if (currentAlbum != null) {
-                                    database.query {
-                                        update(currentAlbum.album.copy(description = wikiDescription))
-                                    }
-                                }
-                            } else {
-                                val appleDescription = AppleMusicAboutAlbum.fetchAlbumDescription(it.album.title, artistName)
-                                if (appleDescription != null) {
-                                    description.value = appleDescription
-                                    val currentAlbum = database.album(albumId).first()
-                                    if (currentAlbum != null) {
-                                        database.query {
-                                            update(currentAlbum.album.copy(description = appleDescription))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    _fetchState.value = FetchState.Success
                 }.onFailure {
                     reportException(it)
-                    if (it.message?.contains("NOT_FOUND") == true) {
-                        val albumToDelete = album?.album
-                        if (albumToDelete != null) {
-                            database.query {
-                                delete(albumToDelete)
-                            }
+                    val isNotFound = it.message?.contains("NOT_FOUND") == true
+                    if (isNotFound) {
+                        database.query {
+                            album?.album?.let(::delete)
                         }
                     }
+                    _fetchState.value = FetchState.Failed(isNotFound = isNotFound)
                 }
         }
     }

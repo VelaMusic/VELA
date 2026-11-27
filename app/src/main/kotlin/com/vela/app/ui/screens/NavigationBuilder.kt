@@ -1,151 +1,197 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.screens
 
-import android.app.Activity
+import android.net.Uri
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.dialog
 import androidx.navigation.navArgument
+import com.vela.app.BuildConfig
+import com.vela.app.R
+import com.vela.app.constants.DarkModeKey
+import com.vela.app.constants.UpdateChannel
+import com.vela.app.constants.PureBlackKey
+import com.vela.app.ui.component.BottomSheet
+import com.vela.app.ui.component.BottomSheetMenu
+import com.vela.app.ui.component.LocalMenuState
+import com.vela.app.ui.component.rememberBottomSheetState
+import com.vela.app.ui.screens.BrowseScreen
 import com.vela.app.ui.screens.artist.ArtistAlbumsScreen
 import com.vela.app.ui.screens.artist.ArtistItemsScreen
 import com.vela.app.ui.screens.artist.ArtistScreen
 import com.vela.app.ui.screens.artist.ArtistSongsScreen
-import com.vela.app.ui.screens.equalizer.EqScreen
-import com.vela.app.ui.screens.generate.GenerateScreen
-import com.vela.app.ui.screens.library.LibraryScreen
+import com.vela.app.ui.screens.downloads.DownloadLibraryScreen
 import com.vela.app.ui.screens.library.LocalSongScreen
-import com.vela.app.ui.screens.musicflow.MusicFlowScreen
+import com.vela.app.ui.screens.library.LibraryScreen
 import com.vela.app.ui.screens.playlist.AutoPlaylistScreen
-import com.vela.app.ui.screens.playlist.CachePlaylistScreen
 import com.vela.app.ui.screens.playlist.LocalPlaylistScreen
 import com.vela.app.ui.screens.playlist.OnlinePlaylistScreen
-import com.vela.app.ui.screens.playlist.SpotifyPlaylistDetailScreen
+import com.vela.app.ui.screens.playlist.SpotifyPlaylistScreen
 import com.vela.app.ui.screens.playlist.TopPlaylistScreen
+import com.vela.app.ui.screens.playlist.CachePlaylistScreen
+import com.vela.app.ui.screens.search.OnlineSearchResultArgument
+import com.vela.app.ui.screens.search.OnlineSearchResultRoute
+import com.vela.app.ui.screens.search.OnlineSearchResultRoutePrefix
 import com.vela.app.ui.screens.search.OnlineSearchResult
-import com.vela.app.ui.screens.search.SearchScreen
-import com.vela.app.ui.screens.settings.BlockedArtistsScreen
 import com.vela.app.ui.screens.settings.AboutScreen
+import com.vela.app.ui.screens.settings.AccountSettings
+import com.vela.app.ui.screens.settings.AiIntegrationSettings
+import com.vela.app.ui.screens.settings.AodCustomizedScreen
 import com.vela.app.ui.screens.settings.AppearanceSettings
-import com.vela.app.ui.screens.settings.GlassEffectSettings
-import com.vela.app.ui.screens.settings.MusicFlowSettings
+import com.vela.app.ui.screens.settings.CustomizeBackground
 import com.vela.app.ui.screens.settings.BackupAndRestore
+import com.vela.app.ui.screens.settings.ChangelogScreen
 import com.vela.app.ui.screens.settings.ContentSettings
-import com.vela.app.ui.screens.settings.UptimeScreen
 import com.vela.app.ui.screens.settings.DarkMode
+import com.vela.app.ui.screens.settings.DiscordSettings
+import com.vela.app.ui.screens.settings.DebugSettings
+import com.vela.app.ui.screens.settings.IntegrationScreen
+import com.vela.app.ui.screens.settings.LastFMSettings
+import com.vela.app.ui.screens.settings.LyricsAnimationSettings
+import com.vela.app.ui.screens.settings.LyricsSettings
+import com.vela.app.ui.screens.settings.MusicTogetherScreen
+import com.vela.app.ui.screens.settings.PalettePickerScreen
 import com.vela.app.ui.screens.settings.PlayerSettings
-import com.vela.app.ui.screens.settings.ExtensionSettingsScreen
+import com.vela.app.ui.screens.settings.PoTokenScreen
 import com.vela.app.ui.screens.settings.PrivacySettings
-import com.vela.app.ui.screens.settings.RomanizationSettings
-import com.vela.app.ui.screens.DetailedListeningHistoryScreen
-import com.vela.app.ui.screens.ListeningSummaryScreen
+import com.vela.app.ui.screens.settings.InternetSettings
 import com.vela.app.ui.screens.settings.SettingsScreen
-import com.vela.app.ui.screens.settings.AccountSettingsScreen
 import com.vela.app.ui.screens.settings.StorageSettings
-import com.vela.app.ui.screens.settings.ThemeScreen
-import com.vela.app.ui.screens.settings.FontSelectionScreen
-import com.vela.app.ui.screens.settings.AiSettings
-
-import com.vela.app.ui.screens.settings.integrations.ListenTogetherSettings
-import com.vela.app.ui.settings.TuneSettingsScreen
-import com.vela.app.ui.screens.recognition.RecognitionScreen
-import com.vela.app.ui.screens.recognition.RecognitionHistoryScreen
-import com.vela.app.ui.screens.settings.UpdateSettings
-import com.vela.app.vela.updater.UpdateScreen
-import com.vela.app.vela.changelog.ChangelogScreen
-import com.vela.app.vela.commitscreen.CommitScreen
-import com.vela.app.ui.screens.equalizer.axion.AxionEqScreen
-import com.vela.app.ui.screens.ambient.AmbientModeScreen
-import com.vela.app.ui.screens.settings.AmbientSettingsScreen
+import com.vela.app.ui.screens.settings.ThemeCreatorScreen
+import com.vela.app.ui.screens.settings.UpdateScreen
+import com.vela.app.musicrecognition.MusicRecognitionRoute
+import com.vela.app.ui.screens.musicrecognition.MusicRecognitionScreen
+import com.vela.app.ui.utils.ShowMediaInfo
+import com.vela.app.utils.rememberEnumPreference
+import com.vela.app.ui.screens.onboarding.OnboardingRoute
+import com.vela.app.utils.rememberPreference
 
 @OptIn(ExperimentalMaterial3Api::class)
 fun NavGraphBuilder.navigationBuilder(
     navController: NavHostController,
     scrollBehavior: TopAppBarScrollBehavior,
-    activity: Activity,
-    snackbarHostState: SnackbarHostState
+    latestVersionName: () -> String,
+    disableAnimations: Boolean = false,
+    onClearUpdateBadge: () -> Unit = {},
+    onOpenSearch: () -> Unit = {},
 ) {
     composable(Screens.Home.route) {
-        VelaHomeScreen(navController = navController, snackbarHostState = snackbarHostState)
+        HomeScreen(navController)
     }
-
+    /**
+     * Vela's search is the expanding top bar rather than its own screen, so this
+     * route exists purely as a navigation target: it pops straight back to Home and asks
+     * the host to focus the search bar. Without it, any screen linking to
+     * [Screens.Search.route] throws and the app crashes.
+     */
     composable(Screens.Search.route) {
-        VelaSearchScreen(navController = navController)
+        LaunchedEffect(Unit) {
+            navController.popBackStack(Screens.Home.route, inclusive = false)
+            onOpenSearch()
+        }
     }
-
-    composable(Screens.Library.route) {
-        VelaLibraryScreen(navController)
-    }
-
-    composable(Screens.ListenTogether.route) {
-        ListenTogetherScreen(navController, showTopBar = false)
-    }
-
     composable(
-        route = "listen_together_from_topbar",
+        Screens.Library.route,
     ) {
-        ListenTogetherScreen(navController, showTopBar = true)
+        LibraryScreen(navController, scrollBehavior)
     }
-
-    composable("listen_together/chat") {
-        CommentTogetherScreen(navController)
-    }
-
-    composable("history") {
-        HistoryScreen(navController)
-    }
-
-    composable("ambient_mode") {
-        AmbientModeScreen(navController)
-    }
-
-    composable("music_flow") {
-        MusicFlowScreen(navController)
-    }
-
-    composable("ambient_settings") {
-        AmbientSettingsScreen(navController)
-    }
-
     composable("local_songs") {
         LocalSongScreen(navController)
     }
-
+    composable("downloads") {
+        DownloadLibraryScreen(navController)
+    }
+    composable("history") {
+        HistoryScreen(navController)
+    }
     composable("stats") {
         StatsScreen(navController)
     }
-
-    composable("generate") {
-        GenerateScreen(navController)
+    composable("news") {
+        NewsScreen(navController)
     }
-
-    composable("mood_and_genres") {
-        MoodAndGenresScreen(navController, scrollBehavior)
+    composable(
+        route = "view_news/{newsId}",
+        arguments = listOf(
+            navArgument("newsId") { type = NavType.StringType },
+        ),
+    ) {
+        ViewNewsScreen(navController)
     }
-
+    composable(
+        route = "year_in_music?year={year}",
+        arguments = listOf(
+            navArgument("year") {
+                type = NavType.IntType
+                defaultValue = -1
+            }
+        ),
+    ) { backStackEntry ->
+        val selectedYear = backStackEntry.arguments?.getInt("year")?.takeIf { it > 0 }
+        YearInMusicScreen(
+            navController = navController,
+            initialYear = selectedYear,
+        )
+    }
+    composable(MusicRecognitionRoute) {
+        MusicRecognitionScreen(navController)
+    }
+    composable(Screens.MoodAndGenres.route) {
+        MoodAndGenresScreen(navController)
+    }
     composable("account") {
         AccountScreen(navController, scrollBehavior)
     }
-
     composable("new_release") {
         NewReleaseScreen(navController, scrollBehavior)
     }
-
     composable("charts_screen") {
-        ChartsScreen(navController)
+       ChartsScreen(navController)
     }
-
     composable(
         route = "browse/{browseId}",
         arguments = listOf(
@@ -160,41 +206,53 @@ fun NavGraphBuilder.navigationBuilder(
             it.arguments?.getString("browseId")
         )
     }
-
     composable(
-        route = "search/{query}",
-        arguments = listOf(
-            navArgument("query") {
+        route = OnlineSearchResultRoute,
+        arguments =
+        listOf(
+            navArgument(OnlineSearchResultArgument) {
                 type = NavType.StringType
             },
         ),
         enterTransition = {
-            fadeIn(tween(250))
+            if (disableAnimations) {
+                fadeIn(tween(0))
+            } else {
+                fadeIn(tween(250))
+            }
         },
         exitTransition = {
-            if (targetState.destination.route?.startsWith("search/") == true) {
+            if (disableAnimations) {
+                fadeOut(tween(0))
+            } else if (targetState.destination.route?.startsWith(OnlineSearchResultRoutePrefix) == true) {
                 fadeOut(tween(200))
             } else {
                 fadeOut(tween(200)) + slideOutHorizontally { -it / 2 }
             }
         },
         popEnterTransition = {
-            if (initialState.destination.route?.startsWith("search/") == true) {
+            if (disableAnimations) {
+                fadeIn(tween(0))
+            } else if (initialState.destination.route?.startsWith(OnlineSearchResultRoutePrefix) == true) {
                 fadeIn(tween(250))
             } else {
                 fadeIn(tween(250)) + slideInHorizontally { -it / 2 }
             }
         },
         popExitTransition = {
-            fadeOut(tween(200))
+            if (disableAnimations) {
+                fadeOut(tween(0))
+            } else {
+                fadeOut(tween(200))
+            }
         },
     ) {
-        VelaOnlineSearchResult(navController)
+        OnlineSearchResult(navController)
     }
-
     composable(
         route = "album/{albumId}",
-        arguments = listOf(
+        arguments =
+        listOf(
             navArgument("albumId") {
                 type = NavType.StringType
             },
@@ -202,10 +260,10 @@ fun NavGraphBuilder.navigationBuilder(
     ) {
         AlbumScreen(navController, scrollBehavior)
     }
-
     composable(
         route = "artist/{artistId}",
-        arguments = listOf(
+        arguments =
+        listOf(
             navArgument("artistId") {
                 type = NavType.StringType
             },
@@ -213,10 +271,10 @@ fun NavGraphBuilder.navigationBuilder(
     ) {
         ArtistScreen(navController, scrollBehavior)
     }
-
     composable(
         route = "artist/{artistId}/songs",
-        arguments = listOf(
+        arguments =
+        listOf(
             navArgument("artistId") {
                 type = NavType.StringType
             },
@@ -224,7 +282,6 @@ fun NavGraphBuilder.navigationBuilder(
     ) {
         ArtistSongsScreen(navController, scrollBehavior)
     }
-
     composable(
         route = "artist/{artistId}/albums",
         arguments = listOf(
@@ -235,10 +292,10 @@ fun NavGraphBuilder.navigationBuilder(
     ) {
         ArtistAlbumsScreen(navController, scrollBehavior)
     }
-
     composable(
-        route = "artist/{artistId}/items?browseId={browseId}?params={params}",
-        arguments = listOf(
+        route = "artist/{artistId}/items?browseId={browseId}&params={params}",
+        arguments =
+        listOf(
             navArgument("artistId") {
                 type = NavType.StringType
             },
@@ -254,10 +311,10 @@ fun NavGraphBuilder.navigationBuilder(
     ) {
         ArtistItemsScreen(navController, scrollBehavior)
     }
-
     composable(
         route = "online_playlist/{playlistId}",
-        arguments = listOf(
+        arguments =
+        listOf(
             navArgument("playlistId") {
                 type = NavType.StringType
             },
@@ -265,37 +322,10 @@ fun NavGraphBuilder.navigationBuilder(
     ) {
         OnlinePlaylistScreen(navController, scrollBehavior)
     }
-
-    composable(
-        route = "spotify_playlist/{playlistId}?title={title}&cover={cover}",
-        arguments =
-            listOf(
-                navArgument("playlistId") { type = NavType.StringType },
-                navArgument("title") {
-                    type = NavType.StringType
-                    defaultValue = "Playlist"
-                },
-                navArgument("cover") {
-                    type = NavType.StringType
-                    defaultValue = ""
-                },
-            ),
-    ) { backStackEntry ->
-        val playlistId = backStackEntry.arguments?.getString("playlistId") ?: return@composable
-        val title = backStackEntry.arguments?.getString("title") ?: "Playlist"
-        val cover = backStackEntry.arguments?.getString("cover") ?: ""
-        SpotifyPlaylistDetailScreen(
-            navController = navController,
-            scrollBehavior = scrollBehavior,
-            playlistId = playlistId,
-            playlistTitle = title,
-            playlistCover = cover,
-        )
-    }
-
     composable(
         route = "local_playlist/{playlistId}",
-        arguments = listOf(
+        arguments =
+        listOf(
             navArgument("playlistId") {
                 type = NavType.StringType
             },
@@ -303,32 +333,50 @@ fun NavGraphBuilder.navigationBuilder(
     ) {
         LocalPlaylistScreen(navController, scrollBehavior)
     }
-
+    composable(
+        route = "spotify_playlist/{playlistId}",
+        arguments =
+        listOf(
+            navArgument("playlistId") {
+                type = NavType.StringType
+            },
+        ),
+    ) {
+        SpotifyPlaylistScreen(navController, scrollBehavior)
+    }
     composable(
         route = "auto_playlist/{playlist}",
-        arguments = listOf(
+        arguments =
+        listOf(
             navArgument("playlist") {
                 type = NavType.StringType
             },
         ),
     ) {
-        AutoPlaylistScreen(navController, scrollBehavior)
+        // The mixes tab already links to auto_playlist/downloaded; that used to land on an
+        // empty auto-playlist. "downloaded" is a real page now, so route it there.
+        val playlistArgument = it.arguments?.getString("playlist")
+        if (playlistArgument == "downloaded") {
+            DownloadLibraryScreen(navController)
+        } else {
+            AutoPlaylistScreen(navController, scrollBehavior)
+        }
     }
-
     composable(
         route = "cache_playlist/{playlist}",
-        arguments = listOf(
-            navArgument("playlist") {
-                type = NavType.StringType
+        arguments =
+            listOf(
+                navArgument("playlist") {
+                    type = NavType.StringType
             },
         ),
     ) {
         CachePlaylistScreen(navController, scrollBehavior)
     }
-
     composable(
         route = "top_playlist/{top}",
-        arguments = listOf(
+        arguments =
+        listOf(
             navArgument("top") {
                 type = NavType.StringType
             },
@@ -336,10 +384,10 @@ fun NavGraphBuilder.navigationBuilder(
     ) {
         TopPlaylistScreen(navController, scrollBehavior)
     }
-
     composable(
         route = "youtube_browse/{browseId}?params={params}",
-        arguments = listOf(
+        arguments =
+        listOf(
             navArgument("browseId") {
                 type = NavType.StringType
                 nullable = true
@@ -352,202 +400,121 @@ fun NavGraphBuilder.navigationBuilder(
     ) {
         YouTubeBrowseScreen(navController)
     }
-
     composable("settings") {
-        TuneSettingsScreen(
-            navController = navController,
-            onBack = { navController.navigateUp() },
-        )
+        SettingsScreen(navController, scrollBehavior, latestVersionName())
     }
-
-    // Classic settings hub (account, appearance, content, player, AI,
-    // Discord, backup...) — reachable from Tune's "All settings" row.
-    composable("settings/classic") {
-        SettingsScreen(navController, scrollBehavior)
+    composable("settings/account") {
+        AccountSettings(navController, scrollBehavior, latestVersionName())
     }
-
-    composable("blocked_artists") {
-        BlockedArtistsScreen(navController)
+    composable("settings/appearance") {
+        AppearanceSettings(navController, scrollBehavior)
     }
-
-
-    composable(
-        route = "settings/update?highlightKey={highlightKey}",
-        arguments = listOf(navArgument("highlightKey") { type = NavType.StringType; nullable = true })
-    ) { backStackEntry ->
-       UpdateSettings(navController, scrollBehavior, highlightKey = backStackEntry.arguments?.getString("highlightKey"))
+    composable("settings/appearance/aod_customized") {
+        AodCustomizedScreen(navController, scrollBehavior)
     }
-
-    composable(
-        route = "settings/account?highlightKey={highlightKey}",
-        arguments = listOf(navArgument("highlightKey") { type = NavType.StringType; nullable = true })
-    ) { backStackEntry ->
-        AccountSettingsScreen(navController, scrollBehavior, highlightKey = backStackEntry.arguments?.getString("highlightKey"))
+    composable("settings/appearance/palette_picker") {
+        PalettePickerScreen(navController)
     }
-
-    composable(
-        route = "settings/appearance?highlightKey={highlightKey}",
-        arguments = listOf(navArgument("highlightKey") { type = NavType.StringType; nullable = true })
-    ) { backStackEntry ->
-        AppearanceSettings(navController, scrollBehavior, activity, snackbarHostState, highlightKey = backStackEntry.arguments?.getString("highlightKey"))
+    composable("settings/appearance/lyrics_animations") {
+        LyricsAnimationSettings(navController, scrollBehavior)
     }
-
-    composable("settings/appearance/theme") {
-        ThemeScreen(navController)
+    composable("settings/appearance/theme_creator") {
+        ThemeCreatorScreen(navController)
     }
-
-    composable("settings/music_flow") {
-        MusicFlowSettings(navController, scrollBehavior)
+    composable("settings/content") {
+        ContentSettings(navController)
     }
-
-    composable("settings/appearance/liquidglass") {
-        GlassEffectSettings(navController, scrollBehavior)
+    composable("settings/lyrics") {
+        LyricsSettings(navController)
     }
-
-    composable("settings/appearance/font") {
-        FontSelectionScreen(navController)
+    composable("settings/internet") {
+        InternetSettings(navController, scrollBehavior)
     }
-
-    composable(
-        route = "settings/content?highlightKey={highlightKey}",
-        arguments = listOf(navArgument("highlightKey") { type = NavType.StringType; nullable = true })
-    ) { backStackEntry ->
-        ContentSettings(navController, scrollBehavior, highlightKey = backStackEntry.arguments?.getString("highlightKey"))
+    composable("settings/player") {
+        PlayerSettings(navController, scrollBehavior)
     }
-
-    composable("uptime") {
-        UptimeScreen(navController, scrollBehavior)
+    composable("settings/storage") {
+        StorageSettings(navController, scrollBehavior)
     }
-
-    composable("settings/content/romanization") {
-        RomanizationSettings(navController, scrollBehavior)
+    composable("settings/privacy") {
+        PrivacySettings(navController, scrollBehavior)
     }
-
-    composable("settings/listening_summary") {
-        ListeningSummaryScreen(navController)
+    composable("settings/backup_restore") {
+        BackupAndRestore(navController, scrollBehavior)
     }
-
-    composable(
-        route = "detailed_listening_history/{startTimestamp}",
-        arguments = listOf(navArgument("startTimestamp") { type = NavType.StringType })
-    ) {
-        DetailedListeningHistoryScreen(navController)
-    }
-
-    composable(
-        route = "settings/ai?highlightKey={highlightKey}",
-        arguments = listOf(navArgument("highlightKey") { type = NavType.StringType; nullable = true })
-    ) { backStackEntry ->
-        AiSettings(navController, scrollBehavior, highlightKey = backStackEntry.arguments?.getString("highlightKey"))
-    }
-    
-
-    composable(
-        route = "settings/player?highlightKey={highlightKey}",
-        arguments = listOf(navArgument("highlightKey") { type = NavType.StringType; nullable = true })
-    ) { backStackEntry ->
-        PlayerSettings(navController, scrollBehavior, highlightKey = backStackEntry.arguments?.getString("highlightKey"))
-    }
-
-    composable("settings/extensions") {
-        ExtensionSettingsScreen(navController, scrollBehavior)
-    }
-
-    composable(
-        route = "settings/storage?autoOpenExportPicker={autoOpenExportPicker}&highlightKey={highlightKey}",
-        arguments = listOf(
-            navArgument("autoOpenExportPicker") {
-                type = NavType.BoolType
-                defaultValue = false
-            },
-            navArgument("highlightKey") { type = NavType.StringType; nullable = true }
-        )
-    ) { backStackEntry ->
-        val autoOpenExportPicker =
-            backStackEntry.arguments?.getBoolean("autoOpenExportPicker") ?: false
-        StorageSettings(
-            navController = navController,
-            scrollBehavior = scrollBehavior,
-            autoOpenExportPicker = autoOpenExportPicker,
-            highlightKey = backStackEntry.arguments?.getString("highlightKey")
-        )
-    }
-
-    composable("settings/equalizer") {
-        AxionEqScreen(onBackClick = { navController.navigateUp() })
-    }
-
-    composable(
-        route = "settings/privacy?highlightKey={highlightKey}",
-        arguments = listOf(navArgument("highlightKey") { type = NavType.StringType; nullable = true })
-    ) { backStackEntry ->
-        PrivacySettings(navController, scrollBehavior, highlightKey = backStackEntry.arguments?.getString("highlightKey"))
-    }
-
-    composable(
-        route = "settings/backup_restore?highlightKey={highlightKey}",
-        arguments = listOf(navArgument("highlightKey") { type = NavType.StringType; nullable = true })
-    ) { backStackEntry ->
-        BackupAndRestore(navController, scrollBehavior, highlightKey = backStackEntry.arguments?.getString("highlightKey"))
-    }
-
     composable("settings/discord") {
-        com.vela.app.ui.screens.settings.DiscordSettings(navController, scrollBehavior)
+        DiscordSettings(navController, scrollBehavior)
     }
-
+    composable("settings/integration") {
+        IntegrationScreen(navController, scrollBehavior)
+    }
+    composable("settings/ai_integration") {
+        AiIntegrationSettings(navController)
+    }
+    composable("settings/music_together") {
+        MusicTogetherScreen(navController, scrollBehavior)
+    }
     composable("settings/lastfm") {
-        com.vela.app.ui.screens.settings.LastFMSettingsScreen(navController)
+        LastFMSettings(navController, scrollBehavior)
     }
-
     composable("settings/discord/experimental") {
         com.vela.app.ui.screens.settings.DiscordExperimental(navController)
     }
-
-    composable("settings/spotify_import") {
-        SpotifyImportScreen(navController)
+    composable("settings/misc") {
+        DebugSettings(navController)
     }
-
-    composable(route = "settings/integrations/listen_together") {
-        ListenTogetherSettings(navController, scrollBehavior)
+    if (BuildConfig.UPDATER_AVAILABLE) {
+        composable("settings/update") {
+            UpdateScreen(navController, scrollBehavior, onUpToDate = onClearUpdateBadge)
+        }
     }
-
     composable(
-        route = "settings/integrations?highlightKey={highlightKey}",
-        arguments = listOf(navArgument("highlightKey") { type = NavType.StringType; nullable = true })
+        route = "settings/changelog?channel={channel}",
+        arguments = listOf(
+            navArgument("channel") {
+                type = NavType.StringType
+                nullable = true
+                defaultValue = null
+            }
+        )
     ) { backStackEntry ->
-        AccountSettingsScreen(navController, scrollBehavior, highlightKey = backStackEntry.arguments?.getString("highlightKey") ?: "Integrations")
+        val channelName = backStackEntry.arguments?.getString("channel")
+        val channel = channelName?.let {
+            runCatching { UpdateChannel.valueOf(it) }.getOrNull()
+        } ?: UpdateChannel.STABLE
+        ChangelogScreen(navController, scrollBehavior, channel = channel)
     }
-
+    composable("settings/about") {
+        AboutScreen(navController, scrollBehavior)
+    }
+    composable("settings/po_token") {
+        PoTokenScreen(navController, scrollBehavior)
+    }
+    composable("customize_background") {
+        CustomizeBackground(navController)
+    }
     composable(
-        route = "settings/about?highlightKey={highlightKey}",
-        arguments = listOf(navArgument("highlightKey") { type = NavType.StringType; nullable = true })
+        route = "$LOGIN_ROUTE?$LOGIN_URL_ARGUMENT={$LOGIN_URL_ARGUMENT}",
+        arguments = listOf(
+            navArgument(LOGIN_URL_ARGUMENT) {
+                type = NavType.StringType
+                nullable = true
+                defaultValue = null
+            }
+        )
     ) { backStackEntry ->
-        AboutScreen(navController, scrollBehavior, highlightKey = backStackEntry.arguments?.getString("highlightKey"))
+        LoginScreen(
+            navController,
+            startUrl = backStackEntry.arguments?.getString(LOGIN_URL_ARGUMENT)?.let(Uri::decode)
+        )
     }
-
-    composable("update") {
-        UpdateScreen(navController)
-    }
-
-    composable("login") {
-        LoginScreen(navController)
-    }
-
-    dialog("equalizer") {
-        EqScreen(navController = navController)
-    }
-
-    composable("recognition") {
-        RecognitionScreen(navController)
-    }
-
-    composable("recognition_history") {
-        RecognitionHistoryScreen(navController)
-    }
-    composable("settings/changelog") {
-        ChangelogScreen(navController,scrollBehavior)
-    }
-    composable("settings/commits") {
-        CommitScreen(navController, scrollBehavior)
+    composable("welcome") {
+        OnboardingRoute(
+            onNavigateToHome = {
+                navController.navigate(Screens.Home.route) {
+                    popUpTo("welcome") { inclusive = true }
+                }
+            }
+        )
     }
 }

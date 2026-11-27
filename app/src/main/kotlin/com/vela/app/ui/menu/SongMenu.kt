@@ -1,36 +1,54 @@
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
 
 package com.vela.app.ui.menu
 
 import android.content.Intent
-import android.content.res.Configuration
+import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularWavyProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.ListItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,15 +57,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -64,41 +83,46 @@ import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.offline.DownloadService
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
-import com.music.innertube.YouTube
+import com.vela.app.innertube.YouTube
 import com.vela.app.LocalDatabase
 import com.vela.app.LocalDownloadUtil
-import com.vela.app.LocalListenTogetherManager
 import com.vela.app.LocalPlayerConnection
 import com.vela.app.LocalSyncUtils
 import com.vela.app.R
-import com.vela.app.ui.component.HeartBurstIcon
-import com.vela.app.constants.EnableExportAsMp3Key
-import com.vela.app.constants.ExportDirectoryUriKey
-import com.vela.app.constants.ExportedSongIdsKey
-import com.vela.app.constants.ExportingSongIdsKey
+import com.vela.app.constants.ArtistSeparatorsKey
+import com.vela.app.constants.ExternalDownloaderEnabledKey
+import com.vela.app.constants.ExternalDownloaderPackageKey
 import com.vela.app.constants.ListItemHeight
 import com.vela.app.constants.ListThumbnailSize
+import com.vela.app.constants.SpeedDialSongIdsKey
 import com.vela.app.db.entities.ArtistEntity
 import com.vela.app.db.entities.Event
-import com.vela.app.db.entities.SpeedDialItem
 import com.vela.app.db.entities.PlaylistSong
 import com.vela.app.db.entities.Song
+import com.vela.app.db.entities.SongArtistMap
+import com.vela.app.db.MusicDatabase
 import com.vela.app.extensions.toMediaItem
 import com.vela.app.models.toMediaMetadata
 import com.vela.app.playback.ExoDownloadService
 import com.vela.app.playback.queues.YouTubeQueue
 import com.vela.app.ui.component.ListDialog
 import com.vela.app.ui.component.LocalBottomSheetPageState
-import com.vela.app.ui.component.Material3MenuGroup
-import com.vela.app.ui.component.Material3MenuItemData
+import com.vela.app.ui.component.MenuSurfaceSection
 import com.vela.app.ui.component.NewAction
 import com.vela.app.ui.component.NewActionGrid
 import com.vela.app.ui.component.SongListItem
 import com.vela.app.ui.component.TextFieldDialog
-import com.vela.app.utils.listItemShape
 import com.vela.app.ui.utils.ShowMediaInfo
+import com.vela.app.ui.utils.resize
+import com.vela.app.utils.SpeedDialPin
+import com.vela.app.utils.SpeedDialPinType
+import com.vela.app.utils.parseSpeedDialPins
 import com.vela.app.utils.rememberPreference
+import com.vela.app.utils.shareLocalAudio
+import com.vela.app.utils.serializeSpeedDialPins
+import com.vela.app.utils.toggleSpeedDialPin
 import com.vela.app.viewmodels.CachePlaylistViewModel
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -122,55 +146,6 @@ fun SongMenu(
         .collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
     val syncUtils = LocalSyncUtils.current
-    val listenTogetherManager = LocalListenTogetherManager.current
-    val scope = rememberCoroutineScope()
-    
-    val (enableExportAsMp3) = rememberPreference(key = EnableExportAsMp3Key, defaultValue = false)
-    val (exportDirectoryUri) = rememberPreference(key = ExportDirectoryUriKey, defaultValue = "")
-    val (exportingSongIds) = rememberPreference(key = ExportingSongIdsKey, defaultValue = "")
-    val (exportedSongIds) = rememberPreference(key = ExportedSongIdsKey, defaultValue = "")
-
-    val isExporting = remember(exportingSongIds, song.id) { exportingSongIds.split(",").contains(song.id) }
-    val isExported = remember(exportedSongIds, song.id) { exportedSongIds.split(",").contains(song.id) }
-
-    var showReExportDialog by remember { mutableStateOf(false) }
-    if (showReExportDialog) {
-        AlertDialog(
-            onDismissRequest = { showReExportDialog = false },
-            title = { Text(stringResource(R.string.re_export_title)) },
-            text = { Text(stringResource(R.string.re_export_song_message)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showReExportDialog = false
-                        if (exportDirectoryUri.isBlank()) {
-                            android.widget.Toast.makeText(context, context.getString(R.string.export_directory_not_set), android.widget.Toast.LENGTH_SHORT).show()
-                            onDismiss()
-                        } else {
-                            onDismiss()
-                            com.vela.app.playback.AudioExportService.start(
-                                context = context,
-                                songId = song.id,
-                                songTitle = song.song.title,
-                                songArtist = song.artists.joinToString(", ") { it.name },
-                                songAlbum = song.song.albumName ?: "",
-                                artworkUrl = song.thumbnailUrl ?: "",
-                                targetDirectoryUri = exportDirectoryUri
-                            )
-                        }
-                    }
-                ) {
-                    Text(stringResource(R.string.action_export))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showReExportDialog = false }) {
-                    Text(stringResource(android.R.string.cancel))
-                }
-            }
-        )
-    }
-
     var refetchIconDegree by remember { mutableFloatStateOf(0f) }
 
     val cacheViewModel = hiltViewModel<CachePlaylistViewModel>()
@@ -181,7 +156,16 @@ fun SongMenu(
         label = "",
     )
 
-    val isPinned by database.speedDialDao.isPinned(song.id).collectAsState(initial = false)
+    // Artist separators for splitting artist names
+    val (artistSeparators) = rememberPreference(ArtistSeparatorsKey, defaultValue = ",;/&")
+    val (externalDownloaderEnabled) = rememberPreference(ExternalDownloaderEnabledKey, defaultValue = false)
+    val (externalDownloaderPackage) = rememberPreference(ExternalDownloaderPackageKey, defaultValue = "")
+    val (speedDialSongIds, onSpeedDialSongIdsChange) = rememberPreference(SpeedDialSongIdsKey, "")
+    val speedDialPins = remember(speedDialSongIds) { parseSpeedDialPins(speedDialSongIds) }
+    val songPin = remember(song.id) { SpeedDialPin(type = SpeedDialPinType.SONG, id = song.id) }
+    val isInSpeedDial = remember(speedDialPins, songPin) {
+        speedDialPins.any { it.type == songPin.type && it.id == songPin.id }
+    }
 
     val orderedArtists by produceState(initialValue = emptyList<ArtistEntity>(), song) {
         withContext(Dispatchers.IO) {
@@ -190,6 +174,32 @@ fun SongMenu(
                 song.artists.firstOrNull { it.id == map.artistId }
             }
             value = sorted
+        }
+    }
+
+    // Split artists by configured separators
+    data class SplitArtist(
+        val name: String,
+        val originalArtist: ArtistEntity?
+    )
+
+    val splitArtists = remember(orderedArtists, artistSeparators) {
+        if (artistSeparators.isEmpty()) {
+            orderedArtists.map { SplitArtist(it.name, it) }
+        } else {
+            val separatorRegex = "[${Regex.escape(artistSeparators)}]".toRegex()
+            orderedArtists.flatMap { artist ->
+                val parts = artist.name.split(separatorRegex).map { it.trim() }.filter { it.isNotEmpty() }
+                if (parts.size > 1) {
+                    // If the name contains separators, create split artists
+                    // The first part keeps the original artist reference for navigation
+                    parts.mapIndexed { index, name ->
+                        SplitArtist(name, if (index == 0) artist else null)
+                    }
+                } else {
+                    listOf(SplitArtist(artist.name, artist))
+                }
+            }
         }
     }
 
@@ -260,11 +270,18 @@ fun SongMenu(
 
     AddToPlaylistDialog(
         isVisible = showChoosePlaylistDialog,
-        onGetSong = { playlist ->
+        onGetSong = {
             listOf(song.id)
         },
         onDismiss = {
             showChoosePlaylistDialog = false
+        },
+        onAddComplete = { songCount, playlistNames ->
+            val message = when {
+                playlistNames.size == 1 -> context.getString(R.string.added_to_playlist, playlistNames.first())
+                else -> context.getString(R.string.added_to_n_playlists, playlistNames.size)
+            }
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         },
     )
 
@@ -300,84 +317,214 @@ fun SongMenu(
         mutableStateOf(false)
     }
 
-    val ringtoneViewModel = com.vela.app.LocalRingtoneViewModel.current
-
     if (showSelectArtistDialog) {
         ListDialog(
             onDismiss = { showSelectArtistDialog = false },
         ) {
             items(
-                items = song.artists.distinctBy { it.id },
-                key = { it.id },
-            ) { artist ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .height(ListItemHeight)
-                        .clickable {
-                            navController.navigate("artist/${artist.id}")
-                            showSelectArtistDialog = false
-                            onDismiss()
-                        }
-                        .padding(horizontal = 12.dp),
-                ) {
-                    Box(
-                        modifier = Modifier.padding(8.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        AsyncImage(
-                            model = artist.thumbnailUrl,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(ListThumbnailSize)
-                                .clip(CircleShape),
+                items = splitArtists.distinctBy { it.name },
+                key = { it.name },
+            ) { splitArtist ->
+                ListItem(
+                    headlineContent = {
+                        Text(
+                            text = splitArtist.name,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
-                    }
-                    Text(
-                        text = artist.name,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 8.dp),
-                    )
-                }
+                    },
+                    leadingContent = {
+                        AsyncImage(
+                            model = splitArtist.originalArtist?.thumbnailUrl?.resize(200, 200),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier =
+                                Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape),
+                        )
+                    },
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                splitArtist.originalArtist?.let { artist ->
+                                    navController.navigate("artist/${artist.id}")
+                                    showSelectArtistDialog = false
+                                    onDismiss()
+                                }
+                            },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
             }
         }
     }
 
-    SongListItem(
-        song = song,
-        badges = {},
-        shape = MaterialTheme.shapes.large,
-        color = androidx.compose.ui.graphics.Color.Transparent,
-        trailingContent = {
-            IconButton(
-                onClick = {
-                    val s = song.song.toggleLike()
-                    database.query {
-                        update(s)
-                    }
-                    syncUtils.likeSong(s)
-                },
-            ) {
-                HeartBurstIcon(
-                    isLiked = song.song.liked,
-                    iconSize = 24.dp
-                )
-            }
-        },
-    )
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        SongListItem(
+            song = song,
+            badges = {},
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            trailingContent = {
+                IconButton(
+                    onClick = {
+                        val s = song.song.toggleLike()
+                        database.query {
+                            update(s)
+                        }
+                        syncUtils.likeSong(s)
+                    },
+                ) {
+                    Icon(
+                        painter = painterResource(if (song.song.liked) R.drawable.favorite else R.drawable.favorite_border),
+                        tint = if (song.song.liked) MaterialTheme.colorScheme.error else LocalContentColor.current,
+                        contentDescription = null,
+                    )
+                }
+            },
+        )
+    }
 
-    Spacer(modifier = Modifier.height(12.dp))
+    Spacer(modifier = Modifier.height(16.dp))
 
     val bottomSheetPageState = LocalBottomSheetPageState.current
-    val configuration = LocalConfiguration.current
-    val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+    val isLocalSong = song.song.isLocal
 
-    val isGuest = listenTogetherManager?.isGuestPlaybackRestricted == true
+    val startRadioText = stringResource(R.string.start_radio)
+    val playNextText = stringResource(R.string.play_next)
+    val addToQueueText = stringResource(R.string.add_to_queue)
+    val addToPlaylistText = stringResource(R.string.add_to_playlist)
+    val shareText = stringResource(R.string.share)
+    val editText = stringResource(R.string.edit)
+
+    val primaryActions = remember(
+        song,
+        startRadioText,
+        playNextText,
+        addToQueueText,
+        addToPlaylistText,
+        shareText,
+        editText,
+        isLocalSong,
+        onDismiss,
+        playerConnection,
+    ) {
+        buildList {
+            if (!isLocalSong) {
+                add(
+                    NewAction(
+                        icon = {
+                            Icon(
+                                painter = painterResource(R.drawable.radio),
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                        text = startRadioText,
+                        onClick = {
+                            onDismiss()
+                            playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
+                        },
+                    ),
+                )
+            }
+            add(
+                NewAction(
+                    icon = {
+                        Icon(
+                            painter = painterResource(R.drawable.playlist_play),
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    text = playNextText,
+                    onClick = {
+                        onDismiss()
+                        playerConnection.playNext(song.toMediaItem())
+                    },
+                ),
+            )
+            add(
+                NewAction(
+                    icon = {
+                        Icon(
+                            painter = painterResource(R.drawable.queue_music),
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    text = addToQueueText,
+                    onClick = {
+                        onDismiss()
+                        playerConnection.addToQueue(song.toMediaItem())
+                    },
+                ),
+            )
+            add(
+                NewAction(
+                    icon = {
+                        Icon(
+                            painter = painterResource(R.drawable.playlist_add),
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    text = addToPlaylistText,
+                    onClick = { showChoosePlaylistDialog = true },
+                ),
+            )
+            add(
+                NewAction(
+                    icon = {
+                        Icon(
+                            painter = painterResource(R.drawable.share),
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    text = shareText,
+                    onClick = {
+                        onDismiss()
+                        if (isLocalSong) {
+                            shareLocalAudio(context, song.id, song.format?.mimeType)
+                        } else {
+                            val intent = Intent().apply {
+                                action = Intent.ACTION_SEND
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, "https://music.youtube.com/watch?v=${song.id}")
+                            }
+                            context.startActivity(Intent.createChooser(intent, null))
+                        }
+                    },
+                ),
+            )
+            add(
+                NewAction(
+                    icon = {
+                        Icon(
+                            painter = painterResource(R.drawable.edit),
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    text = editText,
+                    onClick = { showEditDialog = true },
+                ),
+            )
+        }
+    }
+
+    val showMutationSection = event != null || playlistSong != null || isFromCache || !isLocalSong
 
     LazyColumn(
         contentPadding = PaddingValues(
@@ -388,557 +535,448 @@ fun SongMenu(
         ),
     ) {
         item {
-            NewActionGrid(
-                actions = listOfNotNull(
-                    if (!isGuest) {
-                        NewAction(
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.radio),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(28.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            },
-                            text = stringResource(R.string.start_radio),
-                            onClick = {
-                                onDismiss()
-                                playerConnection.playQueue(YouTubeQueue.radio(song.toMediaMetadata()))
-                            }
-                        )
-                    } else null,
-                    NewAction(
-                        icon = {
-                            Icon(
-                                painter = painterResource(R.drawable.playlist_add),
-                                contentDescription = null,
-                                modifier = Modifier.size(28.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        },
-                        text = stringResource(R.string.add_to_an_playlist),
-                        onClick = { showChoosePlaylistDialog = true }
-                    ),
-                    NewAction(
-                        icon = {
-                            Icon(
-                                painter = painterResource(R.drawable.share),
-                                contentDescription = null,
-                                modifier = Modifier.size(22.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        },
-                        text = stringResource(R.string.share),
-                        onClick = {
-                            onDismiss()
-                            val intent = Intent().apply {
-                                action = Intent.ACTION_SEND
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, "https://vela.ct.ws/watch?v=${song.id}")
-                            }
-                            context.startActivity(Intent.createChooser(intent, null))
-                        }
-                    )
-                ),
-                columns = 3,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp)
-            )
+            Spacer(modifier = Modifier.height(8.dp))
         }
+
         item {
-            Material3MenuGroup(
-                items = listOfNotNull(
-                    if (listenTogetherManager != null && listenTogetherManager.isGuestPlaybackRestricted) {
-                        Material3MenuItemData(
-                            title = { Text(text = stringResource(R.string.suggest_to_host)) },
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.queue_music),
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                val durationMs = if (song.song.duration > 0) song.song.duration.toLong() * 1000 else 180000L
-                                val trackInfo = com.vela.app.listentogether.TrackInfo(
-                                    id = song.id,
-                                    title = song.song.title,
-                                    artist = orderedArtists.joinToString(", ") { it.name },
-                                    album = song.song.albumName,
-                                    duration = durationMs,
-                                    thumbnail = song.thumbnailUrl
-                                )
-                                listenTogetherManager.suggestTrack(trackInfo)
-                                onDismiss()
-                            }
-                        )
-                    } else null,
-                    Material3MenuItemData(
-                        title = { Text(text = stringResource(R.string.edit)) },
-                        description = { Text(text = stringResource(R.string.edit_song)) },
-                        icon = {
-                            Icon(
-                                painter = painterResource(R.drawable.edit),
-                                contentDescription = null,
-                            )
-                        },
-                        onClick = { 
-                            showEditDialog = true
-                        }
-                    ),
-                    if (!isGuest) {
-                        Material3MenuItemData(
-                            title = { Text(text = stringResource(R.string.play_next)) },
-                            description = { Text(text = stringResource(R.string.play_next_desc)) },
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.playlist_play),
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                onDismiss()
-                                playerConnection.playNext(song.toMediaItem())
-                            }
-                        )
-                    } else null,
-                    if (!isGuest) {
-                        Material3MenuItemData(
-                            title = { Text(text = stringResource(R.string.add_to_queue)) },
-                            description = { Text(text = stringResource(R.string.add_to_queue_desc)) },
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.queue_music),
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                onDismiss()
-                                playerConnection.addToQueue(song.toMediaItem())
-                            }
-                        )
-                    } else null
+            MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+                NewActionGrid(
+                    actions = primaryActions,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
                 )
-            )
+            }
         }
 
-        item { Spacer(modifier = Modifier.height(12.dp)) }
-
         item {
-            Material3MenuGroup(
-                items = buildList {
-                    add(
-                        Material3MenuItemData(
-                            title = { 
-                                Text(
-                                    text = if (isPinned) "Unpin from Speed dial" else "Pin to Speed dial" 
-                                ) 
-                            },
-                            icon = {
-                                Icon(
-                                    painter = painterResource(if (isPinned) R.drawable.remove else R.drawable.add),
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                coroutineScope.launch(Dispatchers.IO) {
-                                    if (isPinned) {
-                                        database.speedDialDao.delete(song.id)
-                                    } else {
-                                        database.speedDialDao.insert(
-                                            SpeedDialItem(
-                                                id = song.id,
-                                                title = song.song.title,
-                                                subtitle = song.artists.joinToString(", ") { it.name },
-                                                thumbnailUrl = song.thumbnailUrl,
-                                                type = "SONG",
-                                                explicit = song.song.explicit
-                                            )
-                                        )
-                                    }
-                                }
-                                onDismiss()
-                            }
-                        )
-                    )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
 
-                    add(
-                        Material3MenuItemData(
-                            title = {
-                                Text(
-                                    text = stringResource(
+        if (!isLocalSong) {
+            item {
+                MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                text =
+                                    stringResource(
                                         if (song.song.inLibrary == null) R.string.add_to_library
-                                        else R.string.remove_from_library
-                                    )
-                                )
-                            },
-                            description = { Text(text = stringResource(R.string.add_to_library_desc)) },
-                            icon = {
-                                Icon(
-                                    painter = painterResource(
-                                        if (song.song.inLibrary == null) R.drawable.library_add
-                                        else R.drawable.library_add_check
+                                        else R.string.remove_from_library,
                                     ),
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                val currentSong = song.song
-                                val isInLibrary = currentSong.inLibrary != null
-                                val token =
-                                    if (isInLibrary) currentSong.libraryRemoveToken else currentSong.libraryAddToken
-
-                                token?.let {
-                                    coroutineScope.launch {
-                                        YouTube.feedback(listOf(it))
-                                    }
-                                }
-
+                            )
+                        },
+                        leadingContent = {
+                            Icon(
+                                painter =
+                                    painterResource(
+                                        if (song.song.inLibrary == null) R.drawable.library_add
+                                        else R.drawable.library_add_check,
+                                    ),
+                                contentDescription = null,
+                            )
+                        },
+                        modifier =
+                            Modifier.clickable {
+                                onDismiss()
                                 database.query {
                                     update(song.song.toggleLibrary())
                                 }
-                            }
-                        )
+                            },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     )
+                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+
+        item {
+            MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+                ListItem(
+                    headlineContent = {
+                        Text(
+                            text = stringResource(
+                                if (isInSpeedDial) R.string.remove_from_speed_dial
+                                else R.string.pin_to_speed_dial,
+                            ),
+                        )
+                    },
+                    leadingContent = {
+                        Icon(
+                            painter = painterResource(if (isInSpeedDial) R.drawable.bookmark_filled else R.drawable.bookmark),
+                            contentDescription = null,
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        val updatedPins = toggleSpeedDialPin(speedDialPins, songPin)
+                        onSpeedDialSongIdsChange(serializeSpeedDialPins(updatedPins))
+                        onDismiss()
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        if (showMutationSection) {
+            item {
+                MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+                    val dividerModifier = Modifier.padding(start = 56.dp)
+                    Column {
                     if (event != null) {
-                        add(
-                            Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.remove_from_history)) },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.delete),
-                                        contentDescription = null,
-                                    )
-                                },
-                                onClick = {
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    text = stringResource(R.string.remove_from_history),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            },
+                            leadingContent = {
+                                Icon(
+                                    painter = painterResource(R.drawable.delete),
+                                    tint = MaterialTheme.colorScheme.error,
+                                    contentDescription = null,
+                                )
+                            },
+                            modifier =
+                                Modifier.clickable {
                                     onDismiss()
                                     database.query {
                                         delete(event)
                                     }
-                                }
-                            )
+                                },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                         )
                     }
+
+                    if (event != null) {
+                        HorizontalDivider(
+                            modifier = dividerModifier,
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                        )
+                    }
+
                     if (playlistSong != null) {
-                        add(
-                            Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.remove_from_playlist)) },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.delete),
-                                        contentDescription = null,
-                                    )
-                                },
-                                onClick = {
-                                    database.transaction {
-                                        coroutineScope.launch {
-                                            playlistBrowseId?.let { playlistId ->
-                                                if (playlistSong.map.setVideoId != null) {
-                                                    YouTube.removeFromPlaylist(
-                                                        playlistId,
-                                                        playlistSong.map.songId,
-                                                        playlistSong.map.setVideoId!!
-                                                    )
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    text = stringResource(R.string.remove_from_playlist),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            },
+                            leadingContent = {
+                                Icon(
+                                    painter = painterResource(R.drawable.delete),
+                                    tint = MaterialTheme.colorScheme.error,
+                                    contentDescription = null,
+                                )
+                            },
+                            modifier =
+                                Modifier.clickable {
+                                    val map = playlistSong.map
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        val browseId = playlistBrowseId
+                                        if (browseId != null) {
+                                            val remoteResult = removeSongFromRemotePlaylist(browseId, map)
+                                            if (remoteResult.isFailure) {
+                                                withContext(Dispatchers.Main) {
+                                                    Toast
+                                                        .makeText(
+                                                            context,
+                                                            context.getString(R.string.error_unknown),
+                                                            Toast.LENGTH_SHORT,
+                                                        )
+                                                        .show()
+                                                    onDismiss()
                                                 }
+                                                return@launch
                                             }
                                         }
-                                        move(
-                                            playlistSong.map.playlistId,
-                                            playlistSong.map.position,
-                                            Int.MAX_VALUE
-                                        )
-                                        delete(playlistSong.map.copy(position = Int.MAX_VALUE))
+                                        database.withTransaction {
+                                            val maxPosition = maxPlaylistSongPosition(map.playlistId) ?: map.position
+                                            if (map.position < maxPosition) {
+                                                move(map.playlistId, map.position, maxPosition)
+                                            }
+                                            delete(map)
+                                        }
+                                        withContext(Dispatchers.Main) {
+                                            onDismiss()
+                                        }
                                     }
-                                    onDismiss()
-                                }
-                            )
+                                },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+
+                        HorizontalDivider(
+                            modifier = dividerModifier,
+                            color = MaterialTheme.colorScheme.outlineVariant,
                         )
                     }
+
                     if (isFromCache) {
-                        add(
-                            Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.remove_from_cache)) },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.delete),
-                                        contentDescription = null,
-                                    )
-                                },
-                                onClick = {
+                        ListItem(
+                            headlineContent = {
+                                Text(
+                                    text = stringResource(R.string.remove_from_cache),
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            },
+                            leadingContent = {
+                                Icon(
+                                    painter = painterResource(R.drawable.delete),
+                                    tint = MaterialTheme.colorScheme.error,
+                                    contentDescription = null,
+                                )
+                            },
+                            modifier =
+                                Modifier.clickable {
                                     onDismiss()
                                     cacheViewModel.removeSongFromCache(song.id)
-                                }
-                            )
+                                },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+
+                        HorizontalDivider(
+                            modifier = dividerModifier,
+                            color = MaterialTheme.colorScheme.outlineVariant,
                         )
                     }
-                }
-            )
-        }
 
-        item { Spacer(modifier = Modifier.height(12.dp)) }
-
-        item {
-            Material3MenuGroup(
-                items = listOf(
-                    when (download?.state) {
-                        Download.STATE_COMPLETED -> {
-                            Material3MenuItemData(
-                                title = {
-                                    Text(
-                                        text = stringResource(R.string.remove_download)
-                                    )
-                                },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.offline),
-                                        contentDescription = null
-                                    )
-                                },
-                                onClick = {
-                                    DownloadService.sendRemoveDownload(
-                                        context,
-                                        ExoDownloadService::class.java,
-                                        song.id,
-                                        false,
-                                    )
-                                }
-                            )
+                    if (!isLocalSong) {
+                        when (download?.state) {
+                            Download.STATE_COMPLETED -> {
+                                ListItem(
+                                    headlineContent = {
+                                        Text(
+                                            text = stringResource(R.string.remove_download),
+                                            color = MaterialTheme.colorScheme.error,
+                                        )
+                                    },
+                                    leadingContent = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.offline),
+                                            tint = MaterialTheme.colorScheme.error,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    modifier =
+                                        Modifier.clickable {
+                                            DownloadService.sendRemoveDownload(
+                                                context,
+                                                ExoDownloadService::class.java,
+                                                song.id,
+                                                false,
+                                            )
+                                        },
+                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                )
+                            }
+                            Download.STATE_QUEUED, Download.STATE_DOWNLOADING -> {
+                                ListItem(
+                                    headlineContent = { Text(text = stringResource(R.string.downloading)) },
+                                    leadingContent = {
+                                        CircularWavyProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                        )
+                                    },
+                                    modifier =
+                                        Modifier.clickable {
+                                            DownloadService.sendRemoveDownload(
+                                                context,
+                                                ExoDownloadService::class.java,
+                                                song.id,
+                                                false,
+                                            )
+                                        },
+                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                )
+                            }
+                            else -> {
+                                ListItem(
+                                    headlineContent = { Text(text = stringResource(R.string.action_download)) },
+                                    leadingContent = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.download),
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    modifier =
+                                        Modifier.clickable {
+                                            val downloadRequest =
+                                                DownloadRequest
+                                                    .Builder(song.id, song.id.toUri())
+                                                    .setCustomCacheKey(song.id)
+                                                    .setData(song.song.title.toByteArray())
+                                                    .build()
+                                            DownloadService.sendAddDownload(
+                                                context,
+                                                ExoDownloadService::class.java,
+                                                downloadRequest,
+                                                false,
+                                            )
+                                        },
+                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                )
+                            }
                         }
-                        Download.STATE_QUEUED, Download.STATE_DOWNLOADING -> {
-                            Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.downloading)) },
-                                icon = {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                },
-                                onClick = {
-                                    DownloadService.sendRemoveDownload(
-                                        context,
-                                        ExoDownloadService::class.java,
-                                        song.id,
-                                        false,
-                                    )
-                                }
+                        if (externalDownloaderEnabled) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 56.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant,
                             )
-                        }
-                        else -> {
-                            Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.action_download)) },
-                                description = { Text(text = stringResource(R.string.download_desc)) },
-                                icon = {
+                            ListItem(
+                                headlineContent = { Text(text = stringResource(R.string.open_with_downloader)) },
+                                leadingContent = {
                                     Icon(
                                         painter = painterResource(R.drawable.download),
                                         contentDescription = null,
                                     )
                                 },
-                                onClick = {
-                                    val downloadRequest =
-                                        DownloadRequest
-                                            .Builder(song.id, song.id.toUri())
-                                            .setCustomCacheKey(song.id)
-                                            .setData(song.song.title.toByteArray())
-                                            .build()
-                                    DownloadService.sendAddDownload(
-                                        context,
-                                        ExoDownloadService::class.java,
-                                        downloadRequest,
-                                        false,
-                                    )
-                                }
+                                modifier = Modifier.clickable {
+                                    onDismiss()
+                                    val url = "https://music.youtube.com/watch?v=${song.id}"
+                                    if (externalDownloaderPackage.isBlank()) {
+                                        Toast.makeText(context, context.getString(R.string.external_downloader_not_configured), Toast.LENGTH_LONG).show()
+                                        return@clickable
+                                    }
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                        setPackage(externalDownloaderPackage)
+                                        data = android.net.Uri.parse(url)
+                                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    try {
+                                        context.startActivity(intent)
+                                    } catch (e: android.content.ActivityNotFoundException) {
+                                        Toast.makeText(context, context.getString(R.string.external_downloader_not_installed), Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                             )
                         }
                     }
-                )
-            )
+                }
+            }
+
         }
 
-        if (enableExportAsMp3) {
-            item { Spacer(modifier = Modifier.height(12.dp)) }
             item {
-                Material3MenuGroup(
-                    items = listOf(
-                        when {
-                            isExporting -> Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.exporting)) },
-                                icon = {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                },
-                                onClick = {}
-                            )
-                            isExported -> Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.action_exported)) },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.folder_managed),
-                                        contentDescription = null
-                                    )
-                                },
-                                onClick = { showReExportDialog = true }
-                            )
-                            else -> Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.action_export)) },
-                                description = { Text(text = stringResource(R.string.export_desc)) },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.file_export),
-                                        contentDescription = null,
-                                    )
-                                },
-                                onClick = {
-                                    if (exportDirectoryUri.isBlank()) {
-                                        android.widget.Toast.makeText(context, context.getString(R.string.export_directory_not_set), android.widget.Toast.LENGTH_SHORT).show()
-                                        onDismiss()
-                                    } else {
-                                        onDismiss()
-                                        com.vela.app.playback.AudioExportService.start(
-                                            context = context,
-                                            songId = song.id,
-                                            songTitle = song.song.title,
-                                            songArtist = song.artists.joinToString(", ") { it.name },
-                                            songAlbum = song.song.albumName ?: "",
-                                            artworkUrl = song.thumbnailUrl ?: "",
-                                            targetDirectoryUri = exportDirectoryUri
-                                        )
-                                    }
-                                }
-                            )
-                        }
-                    )
-                )
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
 
-        item { Spacer(modifier = Modifier.height(12.dp)) }
-
         item {
-            Material3MenuGroup(
-                items = listOf(
-                    Material3MenuItemData(
-                        title = { Text(text = "Set as Ringtone") },
-                        icon = {
+            MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+                Column {
+                    ListItem(
+                        headlineContent = { Text(text = stringResource(R.string.view_artist)) },
+                        leadingContent = {
                             Icon(
-                                painter = painterResource(R.drawable.notification),
+                                painter = painterResource(R.drawable.artist),
                                 contentDescription = null,
-                                modifier = Modifier.size(24.dp)
                             )
                         },
-                        onClick = {
-                            if (ringtoneViewModel.hasSettingsPermission(context)) {
-                                ringtoneViewModel.showTrimmer(song.id, song.song.title, song.artists.joinToString { it.name }, song.song.duration)
-                            } else {
-                                ringtoneViewModel.requestSettingsPermission(context)
-                            }
-                            onDismiss()
-                        }
-                    )
-                )
-            )
-        }
-
-        item { Spacer(modifier = Modifier.height(12.dp)) }
-
-        item {
-            Material3MenuGroup(
-                items = buildList {
-                    add(
-                        Material3MenuItemData(
-                            title = { Text(text = stringResource(R.string.view_artist)) },
-                            description = { Text(text = song.artists.joinToString { it.name }) },
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.artist),
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                if (song.artists.size == 1) {
-                                    navController.navigate("artist/${song.artists[0].id}")
+                        modifier =
+                            Modifier.clickable {
+                                if (splitArtists.size == 1 && splitArtists[0].originalArtist != null) {
+                                    navController.navigate("artist/${splitArtists[0].originalArtist!!.id}")
                                     onDismiss()
                                 } else {
                                     showSelectArtistDialog = true
                                 }
-                            }
-                        )
+                            },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     )
+
                     if (song.song.albumId != null) {
-                        add(
-                            Material3MenuItemData(
-                                title = { Text(text = stringResource(R.string.view_album)) },
-                                description = {
-                                    song.song.albumName?.let {
-                                        Text(text = it)
-                                    }
-                                },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.album),
-                                        contentDescription = null,
-                                    )
-                                },
-                                onClick = {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                        )
+
+                        ListItem(
+                            headlineContent = { Text(text = stringResource(R.string.view_album)) },
+                            leadingContent = {
+                                Icon(
+                                    painter = painterResource(R.drawable.album),
+                                    contentDescription = null,
+                                )
+                            },
+                            modifier =
+                                Modifier.clickable {
                                     onDismiss()
                                     navController.navigate("album/${song.song.albumId}")
-                                }
-                            )
+                                },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                         )
                     }
-                    add(
-                        Material3MenuItemData(
-                            title = { Text(text = stringResource(R.string.refetch)) },
-                            description = { Text(text = stringResource(R.string.refetch_desc)) },
-                            icon = {
+                }
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        item {
+            MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+                Column {
+                    if (!isLocalSong) {
+                        ListItem(
+                            headlineContent = { Text(text = stringResource(R.string.refetch)) },
+                            leadingContent = {
                                 Icon(
                                     painter = painterResource(R.drawable.sync),
                                     contentDescription = null,
                                     modifier = Modifier.graphicsLayer(rotationZ = rotationAnimation),
                                 )
                             },
-                            onClick = {
-                                refetchIconDegree -= 360
-                                cacheViewModel.removeSongFromCache(song.id)
-                                androidx.media3.exoplayer.offline.DownloadService.sendRemoveDownload(context, com.vela.app.playback.ExoDownloadService::class.java, song.id, false)
-                                val intent = android.content.Intent(context, com.vela.app.playback.MusicService::class.java).apply {
-                                    action = "com.vela.app.ACTION_CLEAR_SONG_CACHE"
-                                    putExtra("songId", song.id)
-                                }
-                                context.startService(intent)
-                                scope.launch(Dispatchers.IO) {
-                                    database.query { deleteFormat(song.id) }
-                                    YouTube.queue(listOf(song.id)).onSuccess {
-                                        val newSong = it.firstOrNull()
-                                        if (newSong != null) {
-                                            database.transaction {
-                                                update(song, newSong.toMediaMetadata())
+                            modifier =
+                                Modifier.clickable {
+                                    refetchIconDegree -= 360
+                                    coroutineScope.launch(Dispatchers.IO) {
+                                        YouTube.queue(listOf(song.id)).onSuccess {
+                                            val newSong = it.firstOrNull()
+                                            if (newSong != null) {
+                                                database.transaction {
+                                                    update(song, newSong.toMediaMetadata())
+                                                }
                                             }
                                         }
                                     }
-                                }
-                            }
+                                },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                         )
-                    )
-                    add(
-                        Material3MenuItemData(
-                            title = { Text(text = stringResource(R.string.details)) },
-                            description = { Text(text = stringResource(R.string.details_desc)) },
-                            icon = {
-                                Icon(
-                                    painter = painterResource(R.drawable.info),
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 56.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                        )
+                    }
+
+                    ListItem(
+                        headlineContent = { Text(text = stringResource(R.string.details)) },
+                        leadingContent = {
+                            Icon(
+                                painter = painterResource(R.drawable.info),
+                                contentDescription = null,
+                            )
+                        },
+                        modifier =
+                            Modifier.clickable {
                                 onDismiss()
                                 bottomSheetPageState.show {
                                     ShowMediaInfo(song.id)
                                 }
-                            }
-                        )
+                            },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     )
                 }
-            )
+            }
         }
     }
 }
+

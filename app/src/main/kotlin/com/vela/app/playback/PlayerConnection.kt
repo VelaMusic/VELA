@@ -1,12 +1,21 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.playback
 
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
-import com.vela.app.utils.PlaybackLogManager
-import com.vela.app.utils.PlaybackLogLevel
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM
 import androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM
@@ -14,13 +23,11 @@ import androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM
 import androidx.media3.common.Player.REPEAT_MODE_OFF
 import androidx.media3.common.Player.STATE_ENDED
 import androidx.media3.common.Timeline
-import androidx.media3.exoplayer.ExoPlayer
 import com.vela.app.db.MusicDatabase
 import com.vela.app.extensions.currentMetadata
 import com.vela.app.extensions.getCurrentQueueIndex
 import com.vela.app.extensions.getQueueWindows
 import com.vela.app.extensions.metadata
-import com.vela.app.extensions.togglePlayPause
 import com.vela.app.playback.MusicService.MusicBinder
 import com.vela.app.playback.queues.Queue
 import com.vela.app.utils.reportException
@@ -31,105 +38,30 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
-import timber.log.Timber
-import com.vela.app.constants.SponsorBlockEnabledKey
-import com.vela.app.utils.dataStore
-import com.vela.app.data.SponsorBlockRepository
-import com.vela.app.models.SponsorBlockSegment
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.Job
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlayerConnection(
-    val context: Context,
+    context: Context,
     binder: MusicBinder,
     val database: MusicDatabase,
-    val scope: CoroutineScope,
+    scope: CoroutineScope,
 ) : Player.Listener {
-    private companion object {
-        private const val TAG = "PlayerConnection"
-        private const val PLAYER_INIT_TIMEOUT_MS = 5000L 
-    }
-
     val service = binder.service
-    private val playerReadinessFlow = service.isPlayerReady
-    
-    
-    private fun getPlayerSafe(): ExoPlayer {
-        return try {
-            if (!playerReadinessFlow.value) {
-                Timber.tag(TAG).w("Player accessed before service initialization complete; returning best-effort reference")
-            }
-            service.player
-        } catch (e: UninitializedPropertyAccessException) {
-            Timber.tag(TAG).e(e, "Fatal: player property accessed but not initialized")
-            throw IllegalStateException("MusicService.player not initialized; possible race condition in service startup", e)
-        }
-    }
+    val player = service.player
+    val localPlayer = service.localPlayer
 
-    
-    val player: ExoPlayer
-        get() = getPlayerSafe()
-
-    
-    private val isPlayerInitialized = MutableStateFlow(service.isPlayerReady.value)
-
-    val playbackState: MutableStateFlow<Int>
-    private val playWhenReady: MutableStateFlow<Boolean>
-    val isPlaying: kotlinx.coroutines.flow.StateFlow<Boolean>
-    
-    init {
-        Timber.tag(TAG).d("PlayerConnection init: playerReady=${playerReadinessFlow.value}")
-        
-        
-        val initialState = try {
-            val initialPlayer = getPlayerSafe()
-            Triple(initialPlayer.playbackState, initialPlayer.playWhenReady, 
-                   initialPlayer.playWhenReady && initialPlayer.playbackState != STATE_ENDED)
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error during PlayerConnection initialization, using defaults")
-            Triple(Player.STATE_IDLE, false, false)
-        }
-        
-        playbackState = MutableStateFlow(initialState.first)
-        playWhenReady = MutableStateFlow(initialState.second)
-        isPlaying = combine(playbackState, playWhenReady) { state, ready ->
-            ready && state != STATE_ENDED
+    val playbackState = MutableStateFlow(player.playbackState)
+    private val playWhenReady = MutableStateFlow(player.playWhenReady)
+    val playbackParameters = MutableStateFlow(player.playbackParameters)
+    val isPlaying =
+        combine(playbackState, playWhenReady) { playbackState, playWhenReady ->
+            playWhenReady && playbackState != STATE_ENDED
         }.stateIn(
             scope,
             SharingStarted.Lazily,
-            initialState.third
+            player.playWhenReady && player.playbackState != STATE_ENDED
         )
-        
-        
-        scope.launch {
-            playerReadinessFlow.collect { ready ->
-                isPlayerInitialized.value = ready
-                if (ready) {
-                    Timber.tag(TAG).d("Service player initialization detected by PlayerConnection")
-                }
-            }
-        }
-        
-        Timber.tag(TAG).d("PlayerConnection state flows initialized successfully")
-    }
-    
-    
-    val isEffectivelyPlaying = combine(
-        isPlaying,
-        service.castConnectionHandler?.isCasting ?: MutableStateFlow(false),
-        service.castConnectionHandler?.castIsPlaying ?: MutableStateFlow(false)
-    ) { localPlaying, isCasting, castPlaying ->
-        if (isCasting) castPlaying else localPlaying
-    }.stateIn(
-        scope,
-        SharingStarted.Lazily,
-        player.playbackState != STATE_ENDED && player.playWhenReady
-    )
-    
-    val mediaMetadata = MutableStateFlow(player.currentMetadata)
+    val mediaMetadata = service.currentMediaMetadata
     val currentSong =
         mediaMetadata.flatMapLatest {
             database.song(it?.id)
@@ -153,292 +85,88 @@ class PlayerConnection(
     val canSkipPrevious = MutableStateFlow(true)
     val canSkipNext = MutableStateFlow(true)
 
+    val aodModeEnabled = MutableStateFlow(false)
+
     val error = MutableStateFlow<PlaybackException?>(null)
-    val isMuted = service.isMuted
-
     val waitingForNetworkConnection = service.waitingForNetworkConnection
-    val isCrossfading: kotlinx.coroutines.flow.StateFlow<Boolean> = service.isCrossfading
-    val isAutomixing: kotlinx.coroutines.flow.StateFlow<Boolean> = service.isAutomixing
-    val automixDebugInfo: kotlinx.coroutines.flow.StateFlow<MusicService.AutomixDebugInfo?> = service.automixDebugInfo
-
-    
-    var shouldBlockPlaybackChanges: (() -> Boolean)? = null
-    
-    
-    @Volatile
-    var allowInternalSync: Boolean = false
-
-    var onSkipPrevious: (() -> Unit)? = null
-    var onSkipNext: (() -> Unit)? = null
-
-    private var attachedPlayer: Player? = null
-    
-    private val sponsorBlockRepository = SponsorBlockRepository()
-    private var sponsorBlockJob: Job? = null
-    private val sponsorBlockSegments = MutableStateFlow<List<SponsorBlockSegment>>(emptyList())
+    val queueRestoreCompleted = service.queueRestoreCompleted
 
     init {
-        try {
-            
-            scope.launch {
-                service.playerFlow.collect { newPlayer ->
-                    if (newPlayer != null && newPlayer != attachedPlayer) {
-                        updateAttachedPlayer(newPlayer)
-                    }
-                }
-            }
-            
-            
-            if (attachedPlayer == null && service.isPlayerReady.value) {
-                 updateAttachedPlayer(player)
-            }
+        player.addListener(this)
 
-            Timber.tag(TAG).d("PlayerConnection flow observer registered")
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Failed to initialize PlayerConnection listener or state")
-            
-            throw e
-        }
-    }
-
-    private fun updateAttachedPlayer(newPlayer: Player) {
-        attachedPlayer?.removeListener(this)
-        attachedPlayer = newPlayer
-        newPlayer.addListener(this)
-        
-        
-        playbackState.value = newPlayer.playbackState
-        playWhenReady.value = newPlayer.playWhenReady
-        mediaMetadata.value = newPlayer.currentMetadata
+        playbackState.value = player.playbackState
+        playWhenReady.value = player.playWhenReady
+        playbackParameters.value = player.playbackParameters
         queueTitle.value = service.queueTitle
-        queueWindows.value = newPlayer.getQueueWindows()
-        currentWindowIndex.value = newPlayer.getCurrentQueueIndex()
-        currentMediaItemIndex.value = newPlayer.currentMediaItemIndex
-        shuffleModeEnabled.value = newPlayer.shuffleModeEnabled
-        repeatMode.value = newPlayer.repeatMode
-        
-        Timber.tag(TAG).d("Attached to new player instance: $newPlayer")
-        
-        startSponsorBlockPolling()
+        queueWindows.value = player.getQueueWindows()
+        currentWindowIndex.value = player.getCurrentQueueIndex()
+        currentMediaItemIndex.value = player.currentMediaItemIndex
+        shuffleModeEnabled.value = player.shuffleModeEnabled
+        repeatMode.value = player.repeatMode
+        if (player.mediaItemCount > 0 && service.currentMediaMetadata.value == null) {
+            service.currentMediaMetadata.value = player.currentMetadata
+        }
     }
 
     fun playQueue(queue: Queue) {
-        if (!playerReadinessFlow.value) {
-            Timber.tag(TAG).w("playQueue called before player ready; delegating to service")
-        }
-        try {
-            service.playQueue(queue)
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error in playQueue")
-            throw e
-        }
+        service.playQueue(queue)
     }
 
     fun startRadioSeamlessly() {
-        
-        if (shouldBlockPlaybackChanges?.invoke() == true) {
-            Timber.tag("PlayerConnection").d("startRadioSeamlessly blocked - Listen Together guest")
-            return
-        }
-        if (!playerReadinessFlow.value) {
-            Timber.tag(TAG).w("startRadioSeamlessly called before player ready; delegating to service")
-        }
-        try {
-            service.startRadioSeamlessly()
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error in startRadioSeamlessly")
-            throw e
-        }
+        service.startRadioSeamlessly()
     }
 
     fun playNext(item: MediaItem) = playNext(listOf(item))
 
     fun playNext(items: List<MediaItem>) {
-        
-        if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) {
-            Timber.tag("PlayerConnection").d("playNext blocked - Listen Together guest")
-            return
-        }
-        try {
-            service.playNext(items)
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error in playNext")
-            throw e
-        }
+        service.playNext(items)
     }
 
     fun addToQueue(item: MediaItem) = addToQueue(listOf(item))
 
     fun addToQueue(items: List<MediaItem>) {
-        
-        if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) {
-            Timber.tag("PlayerConnection").d("addToQueue blocked - Listen Together guest")
-            return
-        }
-        try {
-            service.addToQueue(items)
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error in addToQueue")
-            throw e
-        }
+        service.addToQueue(items)
+    }
+
+    fun playFromVoiceSearch(query: String) {
+        service.playFromVoiceSearch(query)
     }
 
     fun toggleLike() {
-        try {
-            service.toggleLike()
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error in toggleLike")
-        }
-    }
-
-    fun toggleMute() {
-        service.toggleMute()
-    }
-
-    fun setMuted(muted: Boolean) {
-        service.setMuted(muted)
-    }
-
-    fun toggleLibrary() {
-        try {
-            service.toggleLibrary()
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error in toggleLibrary")
-        }
-    }
-
-    
-    fun togglePlayPause() {
-        try {
-            val castHandler = service.castConnectionHandler
-            if (castHandler?.isCasting?.value == true) {
-                if (castHandler.castIsPlaying.value) {
-                    castHandler.pause()
-                } else {
-                    castHandler.play()
-                }
-            } else {
-                player.togglePlayPause()
-            }
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error in togglePlayPause")
-        }
-    }
-    
-    
-    fun play() {
-        try {
-            val castHandler = service.castConnectionHandler
-            if (castHandler?.isCasting?.value == true) {
-                castHandler.play()
-            } else {
-                if (player.playbackState == Player.STATE_IDLE) {
-                    player.prepare()
-                }
-                player.playWhenReady = true
-            }
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error in play")
-        }
-    }
-    
-    
-    fun pause() {
-        try {
-            val castHandler = service.castConnectionHandler
-            if (castHandler?.isCasting?.value == true) {
-                castHandler.pause()
-            } else {
-                player.playWhenReady = false
-            }
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error in pause")
-        }
-    }
-
-    
-    fun seekTo(position: Long) {
-        try {
-            val castHandler = service.castConnectionHandler
-            if (castHandler?.isCasting?.value == true) {
-                castHandler.seekTo(position)
-            } else {
-                player.seekTo(position)
-            }
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error in seekTo")
-        }
+        service.toggleLike()
     }
 
     fun seekToNext() {
-        try {
-            
-            val castHandler = service.castConnectionHandler
-            if (castHandler?.isCasting?.value == true) {
-                castHandler.skipToNext()
-                return
-            }
-            player.seekToNext()
-            if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
-                player.prepare()
-            }
-            player.playWhenReady = true
-            onSkipNext?.invoke()
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error in seekToNext")
+        val state = service.togetherSessionState.value as? com.vela.app.together.TogetherSessionState.Joined
+        if (state?.role is com.vela.app.together.TogetherRole.Guest) {
+            service.requestTogetherControl(com.vela.app.together.ControlAction.SkipNext)
+            return
+        }
+        player.seekToNext()
+        player.prepare()
+        player.playWhenReady = true
+        // Immediately restart the Discord presence updater so it picks up the new track without waiting
+        if (com.vela.app.ui.screens.settings.DiscordPresenceManager.isRunning()) {
+            try {
+                com.vela.app.ui.screens.settings.DiscordPresenceManager.restart()
+            } catch (_: Exception) {}
         }
     }
-
-    var onRestartSong: (() -> Unit)? = null
 
     fun seekToPrevious() {
-        try {
-            
-            val castHandler = service.castConnectionHandler
-            if (castHandler?.isCasting?.value == true) {
-                castHandler.skipToPrevious()
-                return
-            }
-
-            
-            
-            if (player.currentPosition > 3000 || !player.hasPreviousMediaItem()) {
-                player.seekTo(0)
-                if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
-                    player.prepare()
-                }
-                player.playWhenReady = true
-                onRestartSong?.invoke()
-            } else {
-                
-                player.seekToPreviousMediaItem()
-                if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
-                    player.prepare()
-                }
-                player.playWhenReady = true
-                onSkipPrevious?.invoke()
-            }
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error in seekToPrevious")
+        val state = service.togetherSessionState.value as? com.vela.app.together.TogetherSessionState.Joined
+        if (state?.role is com.vela.app.together.TogetherRole.Guest) {
+            service.requestTogetherControl(com.vela.app.together.ControlAction.SkipPrevious)
+            return
         }
-    }
-
-    fun skipToPreviousItem() {
-        try {
-            val castHandler = service.castConnectionHandler
-            if (castHandler?.isCasting?.value == true) {
-                castHandler.skipToPrevious()
-                return
-            }
-            if (!player.hasPreviousMediaItem()) return
-            player.seekToPreviousMediaItem()
-            if (player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
-                player.prepare()
-            }
-            player.playWhenReady = true
-            onSkipPrevious?.invoke()
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error in skipToPreviousItem")
+        player.seekToPrevious()
+        player.prepare()
+        player.playWhenReady = true
+        // Immediately restart the Discord presence updater so it picks up the new track without waiting
+        if (com.vela.app.ui.screens.settings.DiscordPresenceManager.isRunning()) {
+            try {
+                com.vela.app.ui.screens.settings.DiscordPresenceManager.restart()
+            } catch (_: Exception) {}
         }
     }
 
@@ -454,11 +182,14 @@ class PlayerConnection(
         playWhenReady.value = newPlayWhenReady
     }
 
+    override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+        this.playbackParameters.value = playbackParameters
+    }
+
     override fun onMediaItemTransition(
         mediaItem: MediaItem?,
         reason: Int,
     ) {
-        mediaMetadata.value = mediaItem?.metadata
         currentMediaItemIndex.value = player.currentMediaItemIndex
         currentWindowIndex.value = player.getCurrentQueueIndex()
         updateCanSkipPreviousAndNext()
@@ -490,13 +221,12 @@ class PlayerConnection(
     override fun onPlayerErrorChanged(playbackError: PlaybackException?) {
         if (playbackError != null) {
             reportException(playbackError)
-            PlaybackLogManager.log(PlaybackLogLevel.ERROR, "Player Error", playbackError.message)
         }
         error.value = playbackError
     }
 
     private fun updateCanSkipPreviousAndNext() {
-        if (!player.currentTimeline.isEmpty && player.currentMediaItemIndex != androidx.media3.common.C.INDEX_UNSET && player.currentMediaItemIndex >= 0 && player.currentMediaItemIndex < player.currentTimeline.windowCount) {
+        if (!player.currentTimeline.isEmpty) {
             val window =
                 player.currentTimeline.getWindow(player.currentMediaItemIndex, Timeline.Window())
             canSkipPrevious.value = player.isCommandAvailable(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM) ||
@@ -511,53 +241,7 @@ class PlayerConnection(
         }
     }
 
-    private fun startSponsorBlockPolling() {
-        sponsorBlockJob?.cancel()
-        sponsorBlockJob = scope.launch {
-            val sponsorBlockEnabledFlow = context.dataStore.data.map { (try { it[SponsorBlockEnabledKey] } catch(e: Exception) { null }) ?: false }
-
-            launch {
-                combine(mediaMetadata, sponsorBlockEnabledFlow) { metadata, enabled ->
-                    Pair(metadata, enabled)
-                }.collect { (metadata, enabled) ->
-                    if (enabled && metadata != null) {
-                        val videoId = metadata.id
-                        sponsorBlockSegments.value = sponsorBlockRepository.getSkipSegments(videoId)
-                    } else {
-                        sponsorBlockSegments.value = emptyList()
-                    }
-                }
-            }
-
-            launch {
-                while (true) {
-                    if (player.isPlaying) {
-                        val currentSegments = sponsorBlockSegments.value
-                        if (currentSegments.isNotEmpty()) {
-                            val currentPosSec = player.currentPosition / 1000f
-                            for (segment in currentSegments) {
-                                if (currentPosSec >= segment.segment[0] && currentPosSec < segment.segment[1]) {
-                                    Timber.d("SponsorBlock: skipping segment ${segment.category} from ${segment.segment[0]} to ${segment.segment[1]}")
-                                    player.seekTo((segment.segment[1] * 1000).toLong())
-                                    break
-                                }
-                            }
-                        }
-                    }
-                    delay(500)
-                }
-            }
-        }
-    }
-
     fun dispose() {
-        try {
-            sponsorBlockJob?.cancel()
-            attachedPlayer?.removeListener(this)
-            attachedPlayer = null
-            Timber.tag(TAG).d("PlayerConnection disposed successfully")
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Error during PlayerConnection disposal")
-        }
+        player.removeListener(this)
     }
 }

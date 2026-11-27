@@ -5,28 +5,6 @@
 # For more details, see
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
-# WEB_REMIX Streaming - WebView JavaScript interfaces
--keepclassmembers class com.vela.app.utils.sabr.EjsNTransformSolver$SolverWebView {
-    @android.webkit.JavascriptInterface public *;
-}
--keepclassmembers class com.vela.app.utils.cipher.CipherWebView {
-    @android.webkit.JavascriptInterface public *;
-}
--keepclassmembers class com.vela.app.utils.potoken.PoTokenWebView {
-    @android.webkit.JavascriptInterface public *;
-}
-
-# Keep streaming utility classes
--keep class com.vela.app.utils.cipher.** { *; }
--keep class com.vela.app.utils.sabr.** { *; }
--keep class com.vela.app.utils.potoken.** { *; }
-
-# Keep coroutine continuation for WebView callbacks
--keepclassmembers class * {
-    void resume(...);
-    void resumeWithException(...);
-}
-
 # If your project uses WebView with JS, uncomment the following
 # and specify the fully qualified class name to the JavaScript interface
 # class:
@@ -34,13 +12,50 @@
 #   public *;
 #}
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Keep readable stack traces in release builds so playback failures stay
+# diagnosable from a user report.
+-keepattributes SourceFile,LineNumberTable
 
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Do not rename classes, methods or fields in release builds.
+#
+# Vela resolves several members reflectively / by name at runtime:
+#  - BotGuardTokenGenerator's WebView bridge (@JavascriptInterface `BotGuardBridge`)
+#  - LoginScreen's WebView bridge (@JavascriptInterface `Android`)
+#  - youtubei.js <-> QuickJS binding names and Kotlin serialization models
+# Renaming them silently breaks anonymous playback (PoToken minting fails),
+# therefore obfuscation stays disabled.
+-dontobfuscate
+
+# Defensive: WebView JavaScript interface methods must never be renamed/stripped.
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+-keep class com.vela.app.utils.potoken.** { *; }
+-keep class com.vela.app.morideobfuscator.youtubei.** { *; }
+
+# Skip R8's class-level optimisation pass. It is what mis-dexed the coroutine
+# state machine above; obfuscation and shrinking stay enabled below.
+-dontoptimize
+
+# VerifyError hardening (crash on v1.3.14, Android 15 / ART):
+#   java.lang.VerifyError: App$newImageLoader$1.invokeSuspend failed to verify:
+#   'this' argument 'Uninitialized Reference: org.json.JSONException' not instance of
+#   'Reference: java.lang.RuntimeException'
+# R8's full-mode optimizer can mis-dex Kotlin coroutine state machines and their
+# exception ranges. Keep the coroutine/continuation scaffolding the optimizer needs
+# to understand, and skip the class-level optimisation pass that produced the bad
+# bytecode. Obfuscation stays off, so nothing user-visible changes.
+-keep class kotlin.coroutines.** { *; }
+-keep class kotlinx.coroutines.** { *; }
+-keepclassmembers class kotlinx.coroutines.** { *; }
+-keepclassmembers class * extends kotlin.coroutines.jvm.internal.ContinuationImpl { *; }
+-keepclassmembers class * extends kotlin.coroutines.jvm.internal.BaseContinuationImpl { *; }
+-keepclassmembers class **$* implements kotlin.coroutines.Continuation { *; }
+-keep class org.json.** { *; }
 
 ## Kotlin Serialization
 # Keep `Companion` object fields of serializable classes.
@@ -70,6 +85,9 @@
 # @Serializable and @Polymorphic are used at runtime for polymorphic serialization.
 -keepattributes RuntimeVisibleAnnotations,AnnotationDefault
 
+## Markwon — optional GIF support (android-gif-drawable) not bundled
+-dontwarn pl.droidsonroids.gif.**
+
 -dontwarn javax.servlet.ServletContainerInitializer
 -dontwarn org.bouncycastle.jsse.BCSSLParameters
 -dontwarn org.bouncycastle.jsse.BCSSLSocket
@@ -82,11 +100,22 @@
 -dontwarn org.openjsse.net.ssl.OpenJSSE
 -dontwarn org.slf4j.impl.StaticLoggerBinder
 
-## Rules for NewPipeExtractor
+## Rules for NewPipeExtractor & QuickJS runtime
 -keep class org.schabi.newpipe.extractor.services.youtube.protos.** { *; }
 -keep class org.schabi.newpipe.extractor.timeago.patterns.** { *; }
+-keep class org.schabi.newpipe.extractor.** { *; }
+-keepclassmembers class org.schabi.newpipe.extractor.** { *; }
+-keep class com.dokar.quickjs.** { *; }
+-keepclassmembers class com.dokar.quickjs.** { *; }
+-keep class io.ktor.** { *; }
+-dontwarn io.ktor.**
+-keepattributes Signature
+-keepattributes *Annotation*
+-keepattributes EnclosingMethod
+-keepattributes InnerClasses
 -keep class org.mozilla.javascript.** { *; }
 -keep class org.mozilla.javascript.engine.** { *; }
+-keep class org.mozilla.classfile.ClassFileWriter
 -dontwarn org.mozilla.javascript.JavaToJSONConverters
 -dontwarn org.mozilla.javascript.tools.**
 -keep class javax.script.** { *; }
@@ -111,6 +140,7 @@
 -dontwarn java.beans.IntrospectionException
 -dontwarn java.beans.Introspector
 -dontwarn java.beans.PropertyDescriptor
+-dontwarn java.lang.management.**
 
 # Keep all classes within the kuromoji package
 -keep class com.atilika.kuromoji.** { *; }
@@ -129,58 +159,32 @@
     private void readObject(java.io.ObjectInputStream);
 }
 
-## UCrop Rules
--dontwarn com.yalantis.ucrop**
--keep class com.yalantis.ucrop** { *; }
--keep interface com.yalantis.ucrop** { *; }
+## Media3 Protection Rules
+# Protect Guava from conflicts with system versions
+-keep class com.google.common.** { *; }
+-keep class com.google.common.util.concurrent.** { *; }
+-keep class com.google.common.collect.** { *; }
+-dontwarn com.google.common.**
 
-## Google Cast Rules
--keep class com.vela.app.cast.** { *; }
--keep class com.google.android.gms.cast.** { *; }
--keep class androidx.mediarouter.** { *; }
+# Protect Media3 from obfuscation
+-keep class androidx.media3.** { *; }
+-keep interface androidx.media3.** { *; }
+-dontwarn androidx.media3.**
 
-## JSoup re2j optional dependency
--dontwarn com.google.re2j.**
+## JAudioTagger - suppress missing AWT/ImageIO classes (not available on Android)
+-dontwarn java.awt.**
+-dontwarn javax.imageio.**
+-dontwarn javax.swing.**
+-keep class org.jaudiotagger.** { *; }
 
-# Vibra fingerprint library
--keep class com.vela.app.recognition.VibraSignature { *; }
--keepclassmembers class com.vela.app.recognition.VibraSignature {
-    native <methods>;
+## Jetpack Glance
+# Keep ActionCallback implementations and their no-arg constructors
+-keep class * implements androidx.glance.appwidget.action.ActionCallback {
+    public <init>();
 }
-
-## Kotlin Reflection Fix
--keep class kotlin.Metadata { *; }
--keep class kotlin.reflect.** { *; }
--dontwarn kotlin.reflect.**
-
-## Ktor Serialization
--keep class io.ktor.** { *; }
--keepclassmembers class io.ktor.** { *; }
--dontwarn io.ktor.**
-
-## Shazam Models
--keep class com.music.shazamkit.models.** { *; }
--keepclassmembers class com.music.shazamkit.models.** {
-    *;
+-keep class * implements androidx.glance.action.ActionCallback {
+    public <init>();
 }
-
-## Kotlinx Serialization
--keepattributes *Annotation*
--keepclassmembers class com.music.shazamkit.models.** {
-    *** Companion;
-}
--keepclasseswithmembers class com.music.shazamkit.models.** {
-    kotlinx.serialization.KSerializer serializer(...);
-}
-
-## Listen Together Serialization
--keep class com.vela.app.listentogether.** { *; }
--keepclassmembers class com.vela.app.listentogether.** {
-    *;
-}
--keepclassmembers class com.vela.app.listentogether.** {
-    *** Companion;
-}
--keepclasseswithmembers class com.vela.app.listentogether.** {
-    kotlinx.serialization.KSerializer serializer(...);
-}
+# Keep GlanceAppWidget and its receiver
+-keep class * extends androidx.glance.appwidget.GlanceAppWidget { *; }
+-keep class * extends androidx.glance.appwidget.GlanceAppWidgetReceiver { *; }

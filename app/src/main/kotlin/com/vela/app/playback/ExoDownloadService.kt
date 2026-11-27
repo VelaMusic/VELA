@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.playback
 
@@ -7,6 +17,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
+import androidx.media3.common.C
 import androidx.media3.common.util.NotificationUtil
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.offline.Download
@@ -47,34 +58,51 @@ class ExoDownloadService : DownloadService(
     override fun getForegroundNotification(
         downloads: MutableList<Download>,
         notMetRequirements: Int
-    ): Notification =
-        Notification.Builder.recoverBuilder(
-            this, downloadUtil.downloadNotificationHelper.buildProgressNotification(
-                this,
-                R.drawable.download,
-                null,
-                if (downloads.size == 1) Util.fromUtf8Bytes(downloads[0].request.data)
-                else resources.getQuantityString(R.plurals.n_song, downloads.size, downloads.size),
-                downloads,
-                notMetRequirements
+    ): Notification {
+        val activeDownloads = downloads.filter { it.state != Download.STATE_REMOVING }
+        val totalPercentage = activeDownloads.sumOf { download ->
+            if (download.getPercentDownloaded() != C.PERCENTAGE_UNSET.toFloat()) {
+                download.getPercentDownloaded().toDouble()
+            } else {
+                0.0
+            }
+        }.toInt()
+        val hasKnownProgress = activeDownloads.any { it.getPercentDownloaded() != C.PERCENTAGE_UNSET.toFloat() }
+        val contentText = if (downloads.size == 1) {
+            Util.fromUtf8Bytes(downloads[0].request.data)
+        } else {
+            resources.getQuantityString(R.plurals.n_song, downloads.size, downloads.size)
+        }
+        return Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.download)
+            .setContentTitle(getString(R.string.downloading))
+            .setContentText(contentText)
+            .setProgress(
+                100 * activeDownloads.size,
+                totalPercentage,
+                !hasKnownProgress && activeDownloads.isNotEmpty()
             )
-        ).addAction(
-            Notification.Action.Builder(
-                Icon.createWithResource(this, R.drawable.close),
-                getString(android.R.string.cancel),
-                PendingIntent.getService(
-                    this,
-                    0,
-                    Intent(this, ExoDownloadService::class.java).setAction(
-                        REMOVE_ALL_PENDING_DOWNLOADS
-                    ),
-                    PendingIntent.FLAG_IMMUTABLE
-                )
-            ).build()
-        ).build()
+            .setOngoing(true)
+            .setShowWhen(false)
+            .addAction(
+                Notification.Action.Builder(
+                    Icon.createWithResource(this, R.drawable.close),
+                    getString(android.R.string.cancel),
+                    PendingIntent.getService(
+                        this,
+                        0,
+                        Intent(this, ExoDownloadService::class.java).setAction(REMOVE_ALL_PENDING_DOWNLOADS),
+                        PendingIntent.FLAG_IMMUTABLE
+                    )
+                ).build()
+            )
+            .build()
+    }
 
 
-    
+    /**
+     * This helper will outlive the lifespan of a single instance of [ExoDownloadService]
+     */
     class TerminalStateNotificationHelper(
         private val context: Context,
         private val notificationHelper: DownloadNotificationHelper,

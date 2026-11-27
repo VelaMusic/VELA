@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.component
 
@@ -10,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,26 +35,23 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import com.music.innertube.YouTube
+import com.vela.app.innertube.YouTube
 import com.vela.app.LocalDatabase
 import com.vela.app.R
-import com.vela.app.constants.InnerTubeCookieKey
 import com.vela.app.db.entities.PlaylistEntity
+import com.vela.app.constants.InnerTubeCookieKey
 import com.vela.app.extensions.isSyncEnabled
 import com.vela.app.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.util.logging.Logger
-import timber.log.Timber
 
 @Composable
 fun CreatePlaylistDialog(
     onDismiss: () -> Unit,
     initialTextFieldValue: String? = null,
     allowSyncing: Boolean = true,
-    onPlaylistCreated: ((String) -> Unit)? = null,
 ) {
     val database = LocalDatabase.current
     val coroutineScope = rememberCoroutineScope()
@@ -54,104 +62,102 @@ fun CreatePlaylistDialog(
     val isSignedIn = innerTubeCookie.isNotEmpty()
 
     TextFieldDialog(
-        icon = { Icon(painter = painterResource(R.drawable.add), contentDescription = null) },
+        icon = { Icon(painter = painterResource(R.drawable.playlist_add), contentDescription = null) },
         title = { Text(text = stringResource(R.string.create_playlist)) },
+        placeholder = { Text(text = stringResource(R.string.playlist_name)) },
+        isInputValid = { it.trim().isNotEmpty() },
         initialTextFieldValue = TextFieldValue(initialTextFieldValue ?: ""),
         onDismiss = onDismiss,
         onDone = { playlistName ->
             coroutineScope.launch(Dispatchers.IO) {
-                try {
-                    val browseId = if (syncedPlaylist && isSignedIn) {
-                        try {
-                            YouTube.createPlaylist(playlistName)
-                        } catch (e: Exception) {
-                            Timber.e(e, "YouTube.createPlaylist failed")
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(
-                                    context,
-                                    "Failed to create playlist on YouTube: ${e.message}",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
-                            null
-                        }
-                    } else if (syncedPlaylist) {
-                        Logger.getLogger("CreatePlaylistDialog").warning("Not signed in")
-                        return@launch
-                    } else null
+                val browseId = if (syncedPlaylist && isSignedIn) {
+                    YouTube.createPlaylist(playlistName).getOrNull()
+                } else if (syncedPlaylist) {
+                    Logger.getLogger("CreatePlaylistDialog").warning("Not signed in")
+                    return@launch
+                } else null
 
-                    val playlistEntity = PlaylistEntity(
-                        name = playlistName,
-                        browseId = browseId,
-                        bookmarkedAt = LocalDateTime.now(),
-                        isEditable = true,
+                database.withTransaction {
+                    insert(
+                        PlaylistEntity(
+                            name = playlistName,
+                            browseId = browseId,
+                            bookmarkedAt = LocalDateTime.now(),
+                            isEditable = true,
+                        ),
                     )
-
-                    database.query {
-                        insert(playlistEntity)
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        onPlaylistCreated?.invoke(playlistEntity.id)
-                    }
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to create playlist")
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(
-                            context,
-                            "Failed to create playlist: ${e.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
                 }
             }
         },
         extraContent = {
             if (allowSyncing) {
-                Row(
-                    modifier = Modifier.padding(vertical = 16.dp, horizontal = 40.dp)
+                val isYtmSyncEnabled = context.isSyncEnabled()
+                val syncDescription = when {
+                    !isSignedIn -> stringResource(R.string.not_logged_in_youtube)
+                    !isYtmSyncEnabled -> stringResource(R.string.sync_disabled)
+                    else -> stringResource(R.string.allows_for_sync_witch_youtube)
+                }
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = MaterialTheme.shapes.large,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp)
                 ) {
-                    Column {
-                        Text(
-                            text = stringResource(R.string.sync_playlist),
-                            style = MaterialTheme.typography.titleLarge,
-                        )
-                        Text(
-                            text = stringResource(R.string.allows_for_sync_witch_youtube),
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.fillMaxWidth(0.7f)
-                        )
-                    }
                     Row(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.End
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        Icon(
+                            painter = painterResource(R.drawable.sync),
+                            contentDescription = null,
+                            tint = if (syncedPlaylist) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.sync_playlist),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = syncDescription,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         Switch(
                             checked = syncedPlaylist,
                             onCheckedChange = {
-                                // Avoid calling context.isSyncEnabled() synchronously here —
-                                // it uses runBlocking which would freeze the UI thread for
-                                // 50–500 ms on a cold datastore read. Dispatch to IO instead.
-                                coroutineScope.launch {
-                                    val isYtmSyncEnabled = withContext(Dispatchers.IO) {
-                                        context.isSyncEnabled()
-                                    }
-                                    if (!isSignedIn && !syncedPlaylist) {
-                                        Toast.makeText(
-                                            context,
-                                            context.getString(R.string.not_logged_in_youtube),
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    } else if (!isYtmSyncEnabled) {
-                                        Toast.makeText(
-                                            context,
-                                            context.getString(R.string.sync_disabled),
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    } else {
-                                        syncedPlaylist = !syncedPlaylist
-                                    }
+                                if (syncedPlaylist) {
+                                    syncedPlaylist = false
+                                    return@Switch
                                 }
+                                if (!isSignedIn) {
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.not_logged_in_youtube),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    return@Switch
+                                }
+                                if (!isYtmSyncEnabled) {
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.sync_disabled),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                    return@Switch
+                                }
+                                syncedPlaylist = true
                             }
                         )
                     }

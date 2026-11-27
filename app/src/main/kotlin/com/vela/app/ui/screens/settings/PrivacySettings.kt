@@ -1,21 +1,32 @@
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
 
 package com.vela.app.ui.screens.settings
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -38,8 +49,9 @@ import com.vela.app.constants.PauseListenHistoryKey
 import com.vela.app.constants.PauseSearchHistoryKey
 import com.vela.app.ui.component.DefaultDialog
 import com.vela.app.ui.component.IconButton
-import com.vela.app.ui.component.Material3SettingsGroup
-import com.vela.app.ui.component.Material3SettingsItem
+import com.vela.app.ui.component.PreferenceEntry
+import com.vela.app.ui.component.PreferenceGroup
+import com.vela.app.ui.component.SwitchPreference
 import com.vela.app.ui.utils.backToMain
 import com.vela.app.utils.rememberPreference
 
@@ -48,9 +60,7 @@ import com.vela.app.utils.rememberPreference
 fun PrivacySettings(
     navController: NavController,
     scrollBehavior: TopAppBarScrollBehavior,
-highlightKey: String? = null) {
-    val scrollState = androidx.compose.foundation.rememberScrollState()
-
+) {
     val database = LocalDatabase.current
     val (pauseListenHistory, onPauseListenHistoryChange) = rememberPreference(
         key = PauseListenHistoryKey,
@@ -82,6 +92,7 @@ highlightKey: String? = null) {
             buttons = {
                 TextButton(
                     onClick = { showClearListenHistoryDialog = false },
+                    shapes = ButtonDefaults.shapes(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -93,6 +104,7 @@ highlightKey: String? = null) {
                             clearListenHistory()
                         }
                     },
+                    shapes = ButtonDefaults.shapes(),
                 ) {
                     Text(text = stringResource(android.R.string.ok))
                 }
@@ -117,6 +129,7 @@ highlightKey: String? = null) {
             buttons = {
                 TextButton(
                     onClick = { showClearSearchHistoryDialog = false },
+                    shapes = ButtonDefaults.shapes(),
                 ) {
                     Text(text = stringResource(android.R.string.cancel))
                 }
@@ -128,6 +141,7 @@ highlightKey: String? = null) {
                             clearSearchHistory()
                         }
                     },
+                    shapes = ButtonDefaults.shapes(),
                 ) {
                     Text(text = stringResource(android.R.string.ok))
                 }
@@ -137,13 +151,8 @@ highlightKey: String? = null) {
 
     Column(
         Modifier
-            .windowInsetsPadding(
-                LocalPlayerAwareWindowInsets.current.only(
-                    WindowInsetsSides.Horizontal
-                )
-            )
-            .verticalScroll(scrollState)
-            .padding(horizontal = 16.dp)
+            .windowInsetsPadding(LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
+            .verticalScroll(rememberScrollState())
     ) {
         Spacer(
             Modifier.windowInsetsPadding(
@@ -153,116 +162,55 @@ highlightKey: String? = null) {
             )
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Material3SettingsGroup(scrollState = scrollState, 
-            title = stringResource(R.string.listen_history),
-            items = listOf(
-                Material3SettingsItem(
-    isHighlighted = (highlightKey == stringResource(R.string.pause_listen_history)),
-                    icon = painterResource(R.drawable.history),
+        PreferenceGroup(title = stringResource(R.string.listen_history)) {
+            item {
+                SwitchPreference(
                     title = { Text(stringResource(R.string.pause_listen_history)) },
-                    description = { Text(stringResource(R.string.pause_listen_history_desc)) },
-                    trailingContent = {
-                        Switch(
-                            checked = pauseListenHistory,
-                            onCheckedChange = onPauseListenHistoryChange,
-                            thumbContent = {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (pauseListenHistory) R.drawable.check else R.drawable.close
-                                    ),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(androidx.compose.material3.SwitchDefaults.IconSize)
-                                )
-                            }
-                        )
-                    },
-                    onClick = { onPauseListenHistoryChange(!pauseListenHistory) }
-                ),
-                Material3SettingsItem(
-    isHighlighted = (highlightKey == stringResource(R.string.clear_listen_history)),
-                    icon = painterResource(R.drawable.delete_history),
+                    icon = { Icon(painterResource(R.drawable.history), null) },
+                    checked = pauseListenHistory,
+                    onCheckedChange = onPauseListenHistoryChange,
+                )
+            }
+
+            item {
+                PreferenceEntry(
                     title = { Text(stringResource(R.string.clear_listen_history)) },
-                    description = { Text(stringResource(R.string.clear_listen_history_desc)) },
-                    onClick = { showClearListenHistoryDialog = true }
+                    icon = { Icon(painterResource(R.drawable.delete_history), null) },
+                    onClick = { showClearListenHistoryDialog = true },
                 )
-            )
-        )
+            }
+        }
 
-        
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Material3SettingsGroup(scrollState = scrollState, 
-            title = stringResource(R.string.search_history),
-            items = listOf(
-                Material3SettingsItem(
-    isHighlighted = (highlightKey == stringResource(R.string.pause_search_history)),
-                    icon = painterResource(R.drawable.search_off),
+        PreferenceGroup(title = stringResource(R.string.search_history)) {
+            item {
+                SwitchPreference(
                     title = { Text(stringResource(R.string.pause_search_history)) },
-                    description = { Text(stringResource(R.string.pause_search_history_desc)) },
-                    trailingContent = {
-                        Switch(
-                            checked = pauseSearchHistory,
-                            onCheckedChange = onPauseSearchHistoryChange,
-                            thumbContent = {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (pauseSearchHistory) R.drawable.check else R.drawable.close
-                                    ),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(androidx.compose.material3.SwitchDefaults.IconSize)
-                                )
-                            }
-                        )
-                    },
-                    onClick = { onPauseSearchHistoryChange(!pauseSearchHistory) }
-                ),
-                Material3SettingsItem(
-    isHighlighted = (highlightKey == stringResource(R.string.clear_search_history)),
-                    icon = painterResource(R.drawable.clear_all),
+                    icon = { Icon(painterResource(R.drawable.search_off), null) },
+                    checked = pauseSearchHistory,
+                    onCheckedChange = onPauseSearchHistoryChange,
+                )
+            }
+
+            item {
+                PreferenceEntry(
                     title = { Text(stringResource(R.string.clear_search_history)) },
-                    description = { Text(stringResource(R.string.clear_search_history_desc)) },
-                    onClick = { showClearSearchHistoryDialog = true }
+                    icon = { Icon(painterResource(R.drawable.clear_all), null) },
+                    onClick = { showClearSearchHistoryDialog = true },
                 )
-            )
-        )
+            }
+        }
 
-        
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Material3SettingsGroup(scrollState = scrollState, 
-            title = stringResource(R.string.misc),
-            items = listOf(
-                Material3SettingsItem(
-    isHighlighted = (highlightKey == stringResource(R.string.disable_screenshot)),
-                    icon = painterResource(R.drawable.screenshot),
+        PreferenceGroup(title = stringResource(R.string.misc)) {
+            item {
+                SwitchPreference(
                     title = { Text(stringResource(R.string.disable_screenshot)) },
-                    description = { Text(stringResource(R.string.disable_screenshot_desc)) },
-                    trailingContent = {
-                        Switch(
-                            checked = disableScreenshot,
-                            onCheckedChange = onDisableScreenshotChange,
-                            thumbContent = {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (disableScreenshot) R.drawable.check else R.drawable.close
-                                    ),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(androidx.compose.material3.SwitchDefaults.IconSize)
-                                )
-                            }
-                        )
-                    },
-                    onClick = { onDisableScreenshotChange(!disableScreenshot) }
+                    description = stringResource(R.string.disable_screenshot_desc),
+                    icon = { Icon(painterResource(R.drawable.screenshot), null) },
+                    checked = disableScreenshot,
+                    onCheckedChange = onDisableScreenshotChange,
                 )
-            )
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-    
-        Spacer(Modifier.windowInsetsPadding(LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Bottom)))
+            }
+        }
     }
 
     TopAppBar(

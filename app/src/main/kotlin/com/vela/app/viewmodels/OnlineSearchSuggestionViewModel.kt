@@ -1,18 +1,26 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.viewmodels
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.music.innertube.YouTube
-import com.music.innertube.models.WatchEndpoint
-import com.music.innertube.models.YTItem
-import com.music.innertube.models.filterExplicit
-import com.music.innertube.models.filterVideoSongs
-import com.music.innertube.utils.YouTubeUrlParser
+import com.vela.app.innertube.YouTube
+import com.vela.app.innertube.models.YTItem
+import com.vela.app.innertube.models.filterExplicit
+import com.vela.app.innertube.models.filterVideo
 import com.vela.app.constants.HideExplicitKey
-import com.vela.app.constants.HideVideoSongsKey
+import com.vela.app.constants.HideVideoKey
 import com.vela.app.db.MusicDatabase
 import com.vela.app.db.entities.SearchHistory
 import com.vela.app.utils.dataStore
@@ -23,7 +31,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -51,49 +58,34 @@ constructor(
                             )
                         }
                     } else {
-                        val parsedUrl = YouTubeUrlParser.parse(query)
-                        val parsedItem = if (parsedUrl != null) fetchParsedUrlItem(parsedUrl) else null
-                        
-                        val result = if (parsedUrl != null) null else YouTube.searchSuggestions(query).getOrNull()
-                        val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                        val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
-
-                        // While typing, only results, as in Spotify: past searches and query suggestions
-                        // filled the list ahead of what was being looked for.
-                        flowOf(
-                            SearchSuggestionViewState(
-                                items =
-                                    listOfNotNull(parsedItem) +
-                                        result
-                                            ?.recommendedItems
-                                            ?.distinctBy { it.id }
-                                            ?.filter { it.id != parsedItem?.id }
-                                            ?.filterExplicit(hideExplicit)
-                                            ?.filterVideoSongs(hideVideoSongs)
-                                            .orEmpty(),
-                                isFromLink = parsedUrl != null,
-                            )
-                        )
+                        val result = YouTube.searchSuggestions(query).getOrNull()
+                        database
+                            .searchHistory(query)
+                            .map { it.take(3) }
+                            .map { history ->
+                                SearchSuggestionViewState(
+                                    history = history,
+                                    suggestions =
+                                    result
+                                        ?.queries
+                                        ?.filter { query ->
+                                            history.none { it.query == query }
+                                        }.orEmpty(),
+                                    items = result
+                                        ?.recommendedItems
+                                        ?.filterExplicit(
+                                            context.dataStore.get(
+                                                HideExplicitKey,
+                                                false,
+                                            ),
+                                        )
+                                        ?.filterVideo(context.dataStore.get(HideVideoKey, false)).orEmpty(),
+                                )
+                            }
                     }
                 }.collect {
                     _viewState.value = it
                 }
-        }
-    }
-
-    private suspend fun fetchParsedUrlItem(parsedUrl: YouTubeUrlParser.ParsedUrl): YTItem? {
-        return try {
-            when (parsedUrl) {
-                is YouTubeUrlParser.ParsedUrl.Video -> {
-                    YouTube.queue(listOf(parsedUrl.id)).getOrNull()?.firstOrNull()
-                }
-
-                is YouTubeUrlParser.ParsedUrl.Artist -> {
-                    YouTube.artist(parsedUrl.id).getOrNull()?.artist
-                }
-            }
-        } catch (e: Exception) {
-            null
         }
     }
 }
@@ -102,5 +94,4 @@ data class SearchSuggestionViewState(
     val history: List<SearchHistory> = emptyList(),
     val suggestions: List<String> = emptyList(),
     val items: List<YTItem> = emptyList(),
-    val isFromLink: Boolean = false,
 )

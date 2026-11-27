@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.screens.artist
 
@@ -47,14 +57,11 @@ import com.vela.app.LocalPlayerConnection
 import com.vela.app.R
 import com.vela.app.constants.CONTENT_TYPE_ALBUM
 import com.vela.app.constants.CONTENT_TYPE_HEADER
-import com.vela.app.constants.GridItemSize
-import com.vela.app.constants.GridItemsSizeKey
 import com.vela.app.constants.GridThumbnailHeight
 import com.vela.app.ui.component.IconButton
 import com.vela.app.ui.component.LibraryAlbumGridItem
 import com.vela.app.ui.component.LocalMenuState
 import com.vela.app.ui.utils.backToMain
-import com.vela.app.utils.rememberEnumPreference
 import com.vela.app.viewmodels.ArtistAlbumsViewModel
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -66,7 +73,7 @@ fun ArtistAlbumsScreen(
 ) {
     val menuState = LocalMenuState.current
     val playerConnection = LocalPlayerConnection.current ?: return
-    val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
+    val isPlaying by playerConnection.isPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
 
     val artist by viewModel.artist.collectAsState()
@@ -74,7 +81,6 @@ fun ArtistAlbumsScreen(
 
     val coroutineScope = rememberCoroutineScope()
     val lazyGridState = rememberLazyGridState()
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
     var inSelectMode by rememberSaveable { mutableStateOf(false) }
     val selection = rememberSaveable(
@@ -98,7 +104,7 @@ fun ArtistAlbumsScreen(
     ) {
         LazyVerticalGrid(
             state = lazyGridState,
-            columns = GridCells.Adaptive(minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp),
+            columns = GridCells.Adaptive(minSize = GridThumbnailHeight + 24.dp),
             contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues()
         ) {
             item(

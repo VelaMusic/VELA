@@ -1,46 +1,53 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.viewmodels
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.media3.datasource.cache.SimpleCache
 import com.vela.app.constants.HideExplicitKey
-import com.vela.app.constants.HideVideoSongsKey
 import com.vela.app.db.MusicDatabase
 import com.vela.app.db.entities.Song
-import com.vela.app.di.DownloadCache
-import com.vela.app.di.PlayerCache
 import com.vela.app.extensions.filterExplicit
-import com.vela.app.extensions.filterVideoSongs
 import com.vela.app.utils.dataStore
 import com.vela.app.utils.get
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.time.LocalDateTime
 import javax.inject.Inject
+import com.vela.app.di.PlayerCache
+import com.vela.app.di.DownloadCache
+import androidx.media3.datasource.cache.Cache
+import java.time.LocalDateTime
+import kotlinx.coroutines.Dispatchers
 
 @HiltViewModel
 class CachePlaylistViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val database: MusicDatabase,
-    @PlayerCache private val playerCache: SimpleCache,
-    @DownloadCache private val downloadCache: SimpleCache
+    @PlayerCache private val playerCache: Cache,
+    @DownloadCache private val downloadCache: Cache
 ) : ViewModel() {
 
     private val _cachedSongs = MutableStateFlow<List<Song>>(emptyList())
     val cachedSongs: StateFlow<List<Song>> = _cachedSongs
 
     init {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             while (true) {
                 val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
                 val cachedIds = playerCache.keys.toSet()
                 val downloadedIds = downloadCache.keys.toSet()
                 val pureCacheIds = cachedIds.subtract(downloadedIds)
@@ -70,7 +77,6 @@ class CachePlaylistViewModel @Inject constructor(
                     .filter { it.song.dateDownload != null }
                     .sortedByDescending { it.song.dateDownload }
                     .filterExplicit(hideExplicit)
-                    .filterVideoSongs(hideVideoSongs)
 
                 delay(1000)
             }

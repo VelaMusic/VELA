@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.component.shimmer
 
@@ -13,27 +23,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
-import com.vela.app.constants.GridItemSize
-import com.vela.app.constants.GridItemsSizeKey
+import com.vela.app.constants.GridThumbnailCornerRadius
 import com.vela.app.constants.GridThumbnailHeight
-import com.vela.app.constants.SmallGridThumbnailHeight
-import com.vela.app.constants.ThumbnailCornerRadius
-import com.vela.app.utils.rememberEnumPreference
 
 @Composable
 fun GridItemPlaceHolder(
     modifier: Modifier = Modifier,
-    thumbnailShape: Shape = RoundedCornerShape(ThumbnailCornerRadius),
+    thumbnailShape: Shape = RoundedCornerShape(GridThumbnailCornerRadius),
     fillMaxWidth: Boolean = false,
 ) {
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
-    val gridHeight = if (gridItemSize == GridItemSize.BIG) GridThumbnailHeight else SmallGridThumbnailHeight
-    
     Column(
         modifier =
         if (fillMaxWidth) {
@@ -43,7 +45,7 @@ fun GridItemPlaceHolder(
         } else {
             modifier
                 .padding(12.dp)
-                .width(gridHeight)
+                .width(GridThumbnailHeight)
         },
     ) {
         Spacer(
@@ -51,10 +53,10 @@ fun GridItemPlaceHolder(
             if (fillMaxWidth) {
                 Modifier.fillMaxWidth()
             } else {
-                Modifier.height(gridHeight)
+                Modifier.height(GridThumbnailHeight)
             }.aspectRatio(1f)
                 .clip(thumbnailShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(MaterialTheme.colorScheme.onSurface),
         )
 
         Spacer(modifier = Modifier.height(6.dp))

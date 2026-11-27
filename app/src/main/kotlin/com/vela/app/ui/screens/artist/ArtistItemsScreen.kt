@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.screens.artist
 
@@ -12,17 +22,15 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
@@ -32,19 +40,28 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
-import com.music.innertube.models.AlbumItem
-import com.music.innertube.models.ArtistItem
-import com.music.innertube.models.PlaylistItem
-import com.music.innertube.models.SongItem
-import com.music.innertube.models.WatchEndpoint
 import com.vela.app.LocalPlayerAwareWindowInsets
 import com.vela.app.LocalPlayerConnection
 import com.vela.app.R
-import com.vela.app.constants.GridItemSize
-import com.vela.app.constants.GridItemsSizeKey
+import com.vela.app.constants.CONTENT_TYPE_ALBUM
+import com.vela.app.constants.CONTENT_TYPE_ARTIST
+import com.vela.app.constants.CONTENT_TYPE_LIST
+import com.vela.app.constants.CONTENT_TYPE_PLAYLIST
+import com.vela.app.constants.CONTENT_TYPE_SONG
 import com.vela.app.constants.GridThumbnailHeight
+import com.vela.app.extensions.toMediaItem
+import com.vela.app.extensions.togglePlayPause
+import com.vela.app.innertube.models.AlbumItem
+import com.vela.app.innertube.models.ArtistItem
+import com.vela.app.innertube.models.PlaylistItem
+import com.vela.app.innertube.models.SongItem
+import com.vela.app.innertube.models.WatchEndpoint
+import com.vela.app.innertube.models.YTItem
+import com.vela.app.innertube.pages.ArtistItemsPageLayout
 import com.vela.app.models.toMediaMetadata
+import com.vela.app.playback.queues.ListQueue
 import com.vela.app.playback.queues.YouTubeQueue
 import com.vela.app.ui.component.IconButton
 import com.vela.app.ui.component.LocalMenuState
@@ -58,8 +75,6 @@ import com.vela.app.ui.menu.YouTubeArtistMenu
 import com.vela.app.ui.menu.YouTubePlaylistMenu
 import com.vela.app.ui.menu.YouTubeSongMenu
 import com.vela.app.ui.utils.backToMain
-import com.vela.app.utils.listItemShape
-import com.vela.app.utils.rememberEnumPreference
 import com.vela.app.viewmodels.ArtistItemsViewModel
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -72,16 +87,16 @@ fun ArtistItemsScreen(
     val menuState = LocalMenuState.current
     val haptic = LocalHapticFeedback.current
     val playerConnection = LocalPlayerConnection.current ?: return
-    val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
-    val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+    val isPlaying by playerConnection.isPlaying.collectAsStateWithLifecycle()
+    val mediaMetadata by playerConnection.mediaMetadata.collectAsStateWithLifecycle()
 
     val lazyListState = rememberLazyListState()
     val lazyGridState = rememberLazyGridState()
     val coroutineScope = rememberCoroutineScope()
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
-    val title by viewModel.title.collectAsState()
-    val itemsPage by viewModel.itemsPage.collectAsState()
+    val title by viewModel.title.collectAsStateWithLifecycle()
+    val itemsPage by viewModel.itemsPage.collectAsStateWithLifecycle()
+    val itemsLayout by viewModel.itemsLayout.collectAsStateWithLifecycle()
 
     LaunchedEffect(lazyListState) {
         snapshotFlow {
@@ -109,17 +124,16 @@ fun ArtistItemsScreen(
                 ListItemPlaceHolder()
             }
         }
-    }
-
-    if (itemsPage?.items?.firstOrNull() is SongItem) {
+    } else if (itemsLayout == ArtistItemsPageLayout.LIST && itemsPage?.items?.firstOrNull() is SongItem) {
         LazyColumn(
             state = lazyListState,
             contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
         ) {
-            itemsIndexed(
+            items(
                 items = itemsPage?.items.orEmpty().distinctBy { it.id },
-                key = { _, it -> it.id },
-            ) { index, item ->
+                key = { "artist_items_${it.contentKey}" },
+                contentType = { it.contentType },
+            ) { item ->
                 YouTubeListItem(
                     item = item,
                     isActive =
@@ -129,7 +143,6 @@ fun ArtistItemsScreen(
                         else -> false
                     },
                     isPlaying = isPlaying,
-                    shape = listItemShape(index, itemsPage?.items.orEmpty().distinctBy { it.id }.size),
                     trailingContent = {
                         IconButton(
                             onClick = {
@@ -164,6 +177,7 @@ fun ArtistItemsScreen(
                                     }
                                 }
                             },
+                            onLongClick = {},
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.more_vert),
@@ -177,12 +191,16 @@ fun ArtistItemsScreen(
                             when (item) {
                                 is SongItem -> {
                                     if (item.id == mediaMetadata?.id) {
-                                        playerConnection.togglePlayPause()
+                                        playerConnection.player.togglePlayPause()
                                     } else {
+                                        val songs = itemsPage?.items
+                                            .orEmpty()
+                                            .filterIsInstance<SongItem>()
                                         playerConnection.playQueue(
-                                            YouTubeQueue(
-                                                item.endpoint ?: WatchEndpoint(videoId = item.id),
-                                                item.toMediaMetadata()
+                                            ListQueue(
+                                                title = title,
+                                                items = songs.map { it.toMediaItem() },
+                                                startIndex = songs.indexOfFirst { it.id == item.id }.coerceAtLeast(0),
                                             ),
                                         )
                                     }
@@ -209,12 +227,13 @@ fun ArtistItemsScreen(
     } else {
         LazyVerticalGrid(
             state = lazyGridState,
-            columns = GridCells.Adaptive(minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp),
+            columns = GridCells.Adaptive(minSize = GridThumbnailHeight + 24.dp),
             contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues()
         ) {
             items(
                 items = itemsPage?.items.orEmpty().distinctBy { it.id },
-                key = { it.id }
+                key = { "artist_items_${it.contentKey}" },
+                contentType = { it.contentType },
             ) { item ->
                 YouTubeGridItem(
                     item = item,
@@ -299,5 +318,63 @@ fun ArtistItemsScreen(
                 )
             }
         },
+        actions = {
+            val songs = itemsPage?.items.orEmpty().filterIsInstance<SongItem>()
+            if (songs.isNotEmpty()) {
+                IconButton(
+                    onClick = {
+                        playerConnection.playQueue(
+                            ListQueue(
+                                title = title,
+                                items = songs.map { it.toMediaItem() },
+                            ),
+                        )
+                    },
+                    onLongClick = {},
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.play),
+                        contentDescription = null,
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        playerConnection.playQueue(
+                            ListQueue(
+                                title = title,
+                                items = songs.shuffled().map { it.toMediaItem() },
+                            ),
+                        )
+                    },
+                    onLongClick = {},
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.shuffle),
+                        contentDescription = null,
+                    )
+                }
+            }
+        },
     )
 }
+
+private val YTItem.contentKey: String
+    get() {
+        val type = when (this) {
+            is SongItem -> "song"
+            is AlbumItem -> "album"
+            is ArtistItem -> "artist"
+            is PlaylistItem -> "playlist"
+            else -> "item"
+        }
+        return "${type}_$id"
+    }
+
+private val YTItem.contentType: Int
+    get() = when (this) {
+        is SongItem -> CONTENT_TYPE_SONG
+        is AlbumItem -> CONTENT_TYPE_ALBUM
+        is ArtistItem -> CONTENT_TYPE_ARTIST
+        is PlaylistItem -> CONTENT_TYPE_PLAYLIST
+        else -> CONTENT_TYPE_LIST
+    }

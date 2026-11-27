@@ -1,11 +1,21 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.music.innertube.YouTube
-import com.music.innertube.pages.MoodAndGenres
+import com.vela.app.innertube.YouTube
+import com.vela.app.innertube.pages.MoodAndGenres
 import com.vela.app.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,14 +26,14 @@ import javax.inject.Inject
 class MoodAndGenresViewModel
 @Inject
 constructor() : ViewModel() {
-    val moodAndGenres = MutableStateFlow<List<MoodAndGenres>?>(null)
+    val moodAndGenres = MutableStateFlow<List<MoodAndGenres.Item>?>(null)
 
     init {
         viewModelScope.launch {
             YouTube
-                .moodAndGenres()
+                .explore()
                 .onSuccess {
-                    moodAndGenres.value = it
+                    moodAndGenres.value = it.moodAndGenres
                 }.onFailure {
                     reportException(it)
                 }

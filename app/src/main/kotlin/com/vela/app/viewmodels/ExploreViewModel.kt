@@ -1,14 +1,26 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.viewmodels
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.music.innertube.YouTube
-import com.music.innertube.models.filterExplicit
-import com.music.innertube.pages.ExplorePage
+import com.vela.app.innertube.YouTube
+import com.vela.app.innertube.models.filterExplicit
+import com.vela.app.innertube.models.filterVideo
+import com.vela.app.innertube.pages.ExplorePage
 import com.vela.app.constants.HideExplicitKey
+import com.vela.app.constants.HideVideoKey
 import com.vela.app.db.MusicDatabase
 import com.vela.app.utils.dataStore
 import com.vela.app.utils.get
@@ -61,7 +73,7 @@ constructor(
                                         }
                                     } ?: Int.MAX_VALUE
                                 firstArtistKey
-                            }.filterExplicit(context.dataStore.get(HideExplicitKey, false)),
+                            }.filterExplicit(context.dataStore.get(HideExplicitKey, false)).filterVideo(context.dataStore.get(HideVideoKey, false)),
                     )
             }.onFailure {
                 reportException(it)

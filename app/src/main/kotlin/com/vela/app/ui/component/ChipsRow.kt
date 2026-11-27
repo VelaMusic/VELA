@@ -1,34 +1,41 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.component
 
 import android.annotation.SuppressLint
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.expandIn
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Done
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -45,13 +52,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.VerticalDivider
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -65,56 +65,45 @@ fun <E> ChipsRow(
     onValueUpdate: (E) -> Unit,
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
+    icons: Map<E, Int> = emptyMap(),
 ) {
     Row(
         modifier =
         modifier
             .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 4.dp)
-            .horizontalScroll(rememberScrollState())
-            .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal)),
+            .padding(vertical = 8.dp)
+            .horizontalScroll(rememberScrollState()),
     ) {
         Spacer(Modifier.width(12.dp))
 
         chips.forEach { (value, label) ->
             val isSelected = currentValue == value
-
-            
-            val cornerRadius by animateDpAsState(
-                targetValue = if (isSelected) 20.dp else 8.dp,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMedium
-                ),
-                label = "corner_radius"
-            )
+            val iconRes = icons[value]
 
             FilterChip(
-                label = { Text(label) },
                 selected = isSelected,
-                colors = FilterChipDefaults.filterChipColors(
-                    containerColor = containerColor,
-                ),
                 onClick = { onValueUpdate(value) },
-                leadingIcon = if (isSelected) {
-                    {
+                label = { Text(label) },
+                leadingIcon = {
+                    if (isSelected) {
                         Icon(
-                            imageVector = Icons.Filled.Done,
+                            painter = painterResource(R.drawable.done),
+                            contentDescription = null,
+                            modifier = Modifier.size(FilterChipDefaults.IconSize),
+                        )
+                    } else if (iconRes != null) {
+                        Icon(
+                            painter = painterResource(iconRes),
                             contentDescription = null,
                             modifier = Modifier.size(FilterChipDefaults.IconSize),
                         )
                     }
-                } else {
-                    null
                 },
-                shape = RoundedCornerShape(cornerRadius),
+                shape = RoundedCornerShape(16.dp),
                 border = null,
-                modifier = Modifier.animateContentSize(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    )
-                )
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = containerColor,
+                ),
             )
 
             Spacer(Modifier.width(8.dp))
@@ -134,72 +123,64 @@ fun <Int> ChoiceChipsRow(
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
-
     var expandIconDegree by remember { mutableFloatStateOf(0f) }
     val rotationAnimation by animateFloatAsState(
         targetValue = expandIconDegree,
         animationSpec = tween(durationMillis = 400),
-        label = "rotation",
+        label = "",
     )
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal)),
-        ) {
-            Spacer(Modifier.width(12.dp))
-            Box(contentAlignment = Alignment.Center) {
-                FilterChip(
-                    selected = false,
-                    modifier = Modifier
-                        .padding(horizontal = 4.dp),
-                    onClick = {
-                        menuExpanded = !menuExpanded
-                        expandIconDegree -= 180
-                    },
-                    label = {
-                        Text(
-                            text = when (selectedOption) {
-                                OptionStats.WEEKS -> stringResource(id = R.string.weeks)
-                                OptionStats.MONTHS -> stringResource(id = R.string.months)
-                                OptionStats.YEARS -> stringResource(id = R.string.years)
-                                OptionStats.CONTINUOUS -> stringResource(id = R.string.continuous)
-                            }
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Filled.Tune,
-                            contentDescription = null,
-                            modifier = Modifier.size(FilterChipDefaults.IconSize),
-                        )
-                    },
-                    trailingIcon = {
-                        Icon(
-                            painter = painterResource(R.drawable.expand_more),
-                            contentDescription = null,
-                            modifier = Modifier
-                                .graphicsLayer(rotationZ = rotationAnimation)
-                        )
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    border = null,
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = containerColor,
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        labelColor = MaterialTheme.colorScheme.onSurface,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                )
+    Row(
+        modifier =
+        modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp),
+    ) {
+        var expanded by remember { mutableStateOf(false) }
 
+        Column {
+            AssistChip(
+                onClick = {
+                    expanded = !expanded
+                    expandIconDegree -= 180
+                },
+                label = {
+                    Text(
+                        text =
+                        when (selectedOption) {
+                            OptionStats.WEEKS -> stringResource(id = R.string.weeks)
+                            OptionStats.MONTHS -> stringResource(id = R.string.months)
+                            OptionStats.YEARS -> stringResource(id = R.string.years)
+                            OptionStats.CONTINUOUS -> stringResource(id = R.string.continuous)
+                        },
+                    )
+                },
+                trailingIcon = {
+                    Icon(
+                        painter = painterResource(R.drawable.expand_more),
+                        contentDescription = null,
+                        modifier = Modifier.graphicsLayer(rotationZ = rotationAnimation),
+                    )
+                },
+                shape = RoundedCornerShape(16.dp),
+                border = null,
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = containerColor,
+                    labelColor = MaterialTheme.colorScheme.onSurface
+                )
+            )
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandIn() + fadeIn(),
+                exit = shrinkOut() + fadeOut(),
+            ) {
                 DropdownMenu(
-                    expanded = menuExpanded,
+                    modifier = Modifier.padding(start = 12.dp),
+                    expanded = expanded,
                     onDismissRequest = {
-                        menuExpanded = false
-                        expandIconDegree += 180
+                        expanded = false
+                        expandIconDegree -= 180
                     },
                 ) {
                     options.forEach { option ->
@@ -207,64 +188,40 @@ fun <Int> ChoiceChipsRow(
                             text = { Text(text = option.second) },
                             onClick = {
                                 onSelectionChange(option.first)
-                                expandIconDegree += 180
-                                menuExpanded = false
+                                expandIconDegree -= 180
+                                expanded = false
                             },
                         )
                     }
                 }
             }
+        }
 
-            Box(
+        AnimatedContent(
+            targetState = selectedOption,
+            transitionSpec = { slideInHorizontally() + fadeIn() togetherWith slideOutHorizontally() + fadeOut() },
+            label = "",
+        ) {
+            Row(
+                modifier =
                 Modifier
-                    .height(FilterChipDefaults.Height)
-                    .padding(horizontal = 4.dp)
-                    .align(Alignment.CenterVertically)
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
             ) {
-                VerticalDivider()
-            }
+                chips.forEach { (value, label) ->
+                    Spacer(Modifier.width(8.dp))
 
-            chips.forEach { (value, label) ->
-                val isSelected = currentValue == value
-
-                val cornerRadius by animateDpAsState(
-                    targetValue = if (isSelected) 20.dp else 8.dp,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
-                    label = "corner_radius"
-                )
-
-                FilterChip(
-                    label = { Text(label) },
-                    selected = isSelected,
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = containerColor,
-                    ),
-                    onClick = { onValueUpdate(value) },
-                    leadingIcon = if (isSelected) {
-                        {
-                            Icon(
-                                imageVector = Icons.Filled.Done,
-                                contentDescription = null,
-                                modifier = Modifier.size(FilterChipDefaults.IconSize),
-                            )
-                        }
-                    } else {
-                        null
-                    },
-                    shape = RoundedCornerShape(cornerRadius),
-                    border = null,
-                    modifier = Modifier
-                        .padding(horizontal = 4.dp)
-                        .animateContentSize(
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            )
-                        )
-                )
+                    FilterChip(
+                        label = { Text(label) },
+                        selected = currentValue == value,
+                        colors = FilterChipDefaults.filterChipColors(
+                            containerColor = containerColor,
+                        ),
+                        onClick = { onValueUpdate(value) },
+                        shape = RoundedCornerShape(16.dp),
+                        border = null
+                    )
+                }
             }
         }
     }

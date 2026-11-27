@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.viewmodels
 
@@ -6,19 +16,14 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.vela.app.constants.HideVideoSongsKey
 import com.vela.app.constants.MyTopFilter
 import com.vela.app.db.MusicDatabase
-import com.vela.app.utils.dataStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
@@ -36,13 +41,8 @@ constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val topSongs =
-        combine(
-            topPeriod,
-            context.dataStore.data.map { (try { it[HideVideoSongsKey] } catch(e: Exception) { null }) ?: false }.distinctUntilChanged()
-        ) { period, hideVideoSongs -> period to hideVideoSongs }
-            .flatMapLatest { (period, hideVideoSongs) ->
-                database.mostPlayedSongs(period.toTimeMillis(), top.toInt()).map { songs ->
-                    if (hideVideoSongs) songs.filter { !it.song.isVideo } else songs
-                }
+        topPeriod
+            .flatMapLatest { period ->
+                database.mostPlayedSongs(period.toTimeMillis(), top.toInt())
             }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 }

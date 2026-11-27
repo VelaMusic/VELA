@@ -1,25 +1,32 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.viewmodels
 
-import android.content.Context
+import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.music.innertube.YouTube
-import com.music.innertube.pages.HistoryPage
-import com.vela.app.constants.HideVideoSongsKey
+import com.vela.app.innertube.YouTube
+import com.vela.app.innertube.pages.HistoryPage
 import com.vela.app.constants.HistorySource
-import com.vela.app.db.MusicDatabase
-import com.vela.app.utils.dataStore
 import com.vela.app.utils.reportException
+import com.vela.app.db.MusicDatabase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -27,72 +34,149 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
+import timber.log.Timber
 
-@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HistoryViewModel
 @Inject
 constructor(
-    @ApplicationContext private val context: Context,
     val database: MusicDatabase,
 ) : ViewModel() {
     var historySource = MutableStateFlow(HistorySource.LOCAL)
+    private val _remoteHistoryState = MutableStateFlow<RemoteHistoryUiState>(RemoteHistoryUiState.Loading)
+    val remoteHistoryState: StateFlow<RemoteHistoryUiState> = _remoteHistoryState
 
     private val today = LocalDate.now()
     private val thisMonday = today.with(DayOfWeek.MONDAY)
     private val lastMonday = thisMonday.minusDays(7)
 
-    val historyPage = MutableStateFlow<HistoryPage?>(null)
-
     val events =
-        context.dataStore.data
-            .map { (try { it[HideVideoSongsKey] } catch(e: Exception) { null }) ?: false }
-            .distinctUntilChanged()
-            .flatMapLatest { hideVideoSongs ->
-                database
-                    .events()
-                    .map { events ->
-                        events
-                            .filter { !hideVideoSongs || !it.song.song.isVideo }
-                            .groupBy {
-                                val date = it.event.timestamp.toLocalDate()
-                                val daysAgo = ChronoUnit.DAYS.between(date, today).toInt()
-                                when {
-                                    daysAgo == 0 -> DateAgo.Today
-                                    daysAgo == 1 -> DateAgo.Yesterday
-                                    date >= thisMonday -> DateAgo.ThisWeek
-                                    date >= lastMonday -> DateAgo.LastWeek
-                                    else -> DateAgo.Other(date.withDayOfMonth(1))
-                                }
-                            }.toSortedMap(
-                                compareBy { dateAgo ->
-                                    when (dateAgo) {
-                                        DateAgo.Today -> 0L
-                                        DateAgo.Yesterday -> 1L
-                                        DateAgo.ThisWeek -> 2L
-                                        DateAgo.LastWeek -> 3L
-                                        is DateAgo.Other -> ChronoUnit.DAYS.between(dateAgo.date, today)
-                                    }
-                                },
-                            ).mapValues { entry ->
-                                entry.value.distinctBy { it.song.id }
+        database
+            .events()
+            .map { events ->
+                events
+                    .groupBy {
+                        val date = it.event.timestamp.toLocalDate()
+                        val daysAgo = ChronoUnit.DAYS.between(date, today).toInt()
+                        when {
+                            daysAgo == 0 -> DateAgo.Today
+                            daysAgo == 1 -> DateAgo.Yesterday
+                            date >= thisMonday -> DateAgo.ThisWeek
+                            date >= lastMonday -> DateAgo.LastWeek
+                            else -> DateAgo.Other(date.withDayOfMonth(1))
+                        }
+                    }.toSortedMap(
+                        compareBy { dateAgo ->
+                            when (dateAgo) {
+                                DateAgo.Today -> 0L
+                                DateAgo.Yesterday -> 1L
+                                DateAgo.ThisWeek -> 2L
+                                DateAgo.LastWeek -> 3L
+                                is DateAgo.Other -> ChronoUnit.DAYS.between(dateAgo.date, today)
                             }
+                        },
+                    ).mapValues { entry ->
+                        entry.value.distinctBy { it.song.id }
                     }
             }.stateIn(viewModelScope, SharingStarted.Lazily, emptyMap())
 
     init {
-        fetchRemoteHistory()
+        viewModelScope.launch {
+            fetchRemoteHistorySilent()
+        }
     }
 
     fun fetchRemoteHistory() {
+        _remoteHistoryState.value = RemoteHistoryUiState.Loading
         viewModelScope.launch(Dispatchers.IO) {
             YouTube.musicHistory().onSuccess {
-                historyPage.value = it
+                _remoteHistoryState.value = it.toRemoteUiState()
             }.onFailure {
+                _remoteHistoryState.value = RemoteHistoryUiState.Error
                 reportException(it)
             }
         }
     }
+
+    /**
+     * Fetches remote history without transitioning the UI to a Loading state.
+     *
+     * - [RemoteHistoryUiState.Error]   → delegates to [fetchRemoteHistory] (user sees spinner)
+     * - [RemoteHistoryUiState.Loading] → fetches silently; transitions to Error on failure
+     * - [RemoteHistoryUiState.Empty]   → fetches silently; transitions to Error on failure
+     * - [RemoteHistoryUiState.Success] → fetches silently; keeps cached data + logs warning on failure
+     *
+     * Call from a coroutine context (e.g. LaunchedEffect or viewModelScope.launch).
+     */
+    suspend fun fetchRemoteHistorySilent() {
+        val snapshot = _remoteHistoryState.value
+
+        if (snapshot is RemoteHistoryUiState.Error) {
+            fetchRemoteHistory()
+            return
+        }
+
+        withContext(Dispatchers.IO) {
+            try {
+                val page = YouTube.musicHistory().getOrThrow()
+                _remoteHistoryState.value = page.toRemoteUiState()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.tag("History").w(e, "Silent remote history fetch failed")
+                when (snapshot) {
+                    is RemoteHistoryUiState.Success -> {
+                        // Keep cached data; don't disrupt the user
+                    }
+                    is RemoteHistoryUiState.Loading,
+                    is RemoteHistoryUiState.Empty -> {
+                        _remoteHistoryState.value = RemoteHistoryUiState.Error
+                    }
+                }
+            }
+        }
+    }
+
+    private fun HistoryPage.toRemoteUiState(): RemoteHistoryUiState =
+        if (sections?.any { it.songs.isNotEmpty() } == true) RemoteHistoryUiState.Success(this)
+        else RemoteHistoryUiState.Empty
+
+    /**
+     * Non-suspend wrapper for call sites that are not already in a coroutine
+     * (e.g. click handlers in Compose).
+     */
+    fun enqueueSilentFetch() {
+        viewModelScope.launch(Dispatchers.IO) {
+            fetchRemoteHistorySilent()
+        }
+    }
+
+    fun removeEventsFromHistory(eventIds: List<Long>) {
+        val uniqueEventIds = eventIds.distinct()
+        if (uniqueEventIds.isEmpty()) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                database.deleteEventsByIds(uniqueEventIds)
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Throwable) {
+                reportException(exception)
+            }
+        }
+    }
+}
+
+sealed interface RemoteHistoryUiState {
+    data object Loading : RemoteHistoryUiState
+
+    data class Success(
+        val page: HistoryPage,
+    ) : RemoteHistoryUiState
+
+    data object Empty : RemoteHistoryUiState
+
+    data object Error : RemoteHistoryUiState
 }
 
 sealed class DateAgo {

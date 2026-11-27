@@ -1,27 +1,24 @@
 plugins {
-    alias(libs.plugins.hilt) apply (false)
-    alias(libs.plugins.kotlin.ksp) apply (false)
-    alias(libs.plugins.kotlin.serialization) apply false
-    alias(libs.plugins.protobufPlugin) apply false
-}
-
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-        maven { setUrl("https://jitpack.io") }
-        maven { setUrl("https://maven.aliyun.com/repository/public") }
-    }
-    dependencies {
-        classpath(libs.gradle)
-        classpath(kotlin("gradle-plugin", libs.versions.kotlin.get()))
-        classpath("com.google.gms:google-services:4.5.0")
-        classpath("com.google.firebase:firebase-crashlytics-gradle:3.0.8")
-    }
+    alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.android.library) apply false
+    alias(libs.plugins.kotlin.android) apply false
+    alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.compose.compiler) apply false
+    alias(libs.plugins.aboutlibraries.android) apply false
 }
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
+}
+
+if (tasks.findByName("prepareKotlinBuildScriptModel") == null) {
+    tasks.register("prepareKotlinBuildScriptModel") {}
+}
+
+subprojects {
+    if (tasks.findByName("prepareKotlinBuildScriptModel") == null) {
+        tasks.register("prepareKotlinBuildScriptModel") {}
+    }
 }
 
 subprojects {
@@ -30,19 +27,20 @@ subprojects {
             if (project.findProperty("enableComposeCompilerReports") == "true") {
                 arrayOf("reports", "metrics").forEach {
                     freeCompilerArgs.add("-P")
-                    freeCompilerArgs.add("plugin:androidx.compose.compiler.plugins.kotlin:${it}Destination=${project.layout.buildDirectory}/compose_metrics")
+                    freeCompilerArgs.add(
+                        "plugin:androidx.compose.compiler.plugins.kotlin:${it}Destination=${project.layout.buildDirectory}/compose_metrics"
+                    )
                 }
             }
         }
     }
 }
 
-allprojects {
-    configurations.all {
+// Force Gradle to fetch fresh SNAPSHOTs instead of turning off the build cache
+subprojects {
+    configurations.configureEach {
         resolutionStrategy {
-            force("com.google.protobuf:protobuf-javalite:4.35.0")
-            force("com.github.TeamNewPipe:nanojson:c7a6c1c08d16b6d5ecded34758e6415e07be2166")
+            cacheChangingModulesFor(0, "seconds")
         }
-        exclude(group = "com.google.protobuf", module = "protobuf-java")
     }
 }

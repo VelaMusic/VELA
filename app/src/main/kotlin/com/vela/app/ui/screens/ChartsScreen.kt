@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.screens
 
@@ -6,47 +16,18 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,16 +38,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
-import com.music.innertube.models.SongItem
-import com.music.innertube.models.WatchEndpoint
+import com.vela.app.innertube.models.SongItem
+import com.vela.app.innertube.models.WatchEndpoint
 import com.vela.app.LocalPlayerAwareWindowInsets
 import com.vela.app.LocalPlayerConnection
 import com.vela.app.R
 import com.vela.app.constants.ListItemHeight
+import com.vela.app.extensions.togglePlayPause
 import com.vela.app.models.toMediaMetadata
 import com.vela.app.playback.queues.YouTubeQueue
-import com.vela.app.ui.component.IconButton
 import com.vela.app.ui.component.LocalMenuState
+import com.vela.app.ui.component.IconButton
 import com.vela.app.ui.component.NavigationTitle
 import com.vela.app.ui.component.YouTubeGridItem
 import com.vela.app.ui.component.YouTubeListItem
@@ -74,9 +56,8 @@ import com.vela.app.ui.component.shimmer.GridItemPlaceHolder
 import com.vela.app.ui.component.shimmer.ShimmerHost
 import com.vela.app.ui.component.shimmer.TextPlaceholder
 import com.vela.app.ui.menu.YouTubeSongMenu
-import com.vela.app.ui.utils.SnapLayoutInfoProvider
 import com.vela.app.ui.utils.backToMain
-import com.vela.app.utils.listItemShape
+import com.vela.app.ui.utils.SnapLayoutInfoProvider
 import com.vela.app.viewmodels.ChartsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -88,7 +69,7 @@ fun ChartsScreen(
     val menuState = LocalMenuState.current
     val haptic = LocalHapticFeedback.current
     val playerConnection = LocalPlayerConnection.current ?: return
-    val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
+    val isPlaying by playerConnection.isPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
 
     val chartsPage by viewModel.chartsPage.collectAsState()
@@ -207,16 +188,16 @@ fun ChartsScreen(
                         .asPaddingValues(),
                 ) {
                     chartsPage?.sections?.filter { it.title != "Top music videos" }?.forEach { section ->
-                        item(key = "section_title_${section.title}") {
+                        item {
                             NavigationTitle(
                                 title = when (section.title) {
                                     "Trending" -> stringResource(R.string.trending)
-                                        else -> section.title.ifEmpty { stringResource(R.string.charts) }
+                                    else -> section.title ?: stringResource(R.string.charts)
                                 },
                                 modifier = Modifier.animateItem(),
                             )
                         }
-                        item(key = "section_content_${section.title}") {
+                        item {
                             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                                 val horizontalLazyGridItemWidthFactor = if (maxWidth * 0.475f >= 320.dp) 0.475f else 0.9f
                                 val horizontalLazyGridItemWidth = maxWidth * horizontalLazyGridItemWidthFactor
@@ -243,16 +224,15 @@ fun ChartsScreen(
                                         .height(ListItemHeight * 4)
                                         .animateItem(),
                                 ) {
-                                    itemsIndexed(
+                                    items(
                                         items = section.items.filterIsInstance<SongItem>().distinctBy { it.id },
-                                        key = { _, it -> it.id },
-                                    ) { index, song ->
+                                        key = { it.id },
+                                    ) { song ->
                                         YouTubeListItem(
                                             item = song,
                                             isActive = song.id == mediaMetadata?.id,
                                             isPlaying = isPlaying,
                                             isSwipeable = false,
-                                            shape = listItemShape(index % 4, 4),
                                             trailingContent = {
                                                 IconButton(
                                                     onClick = {
@@ -276,7 +256,7 @@ fun ChartsScreen(
                                                 .combinedClickable(
                                                     onClick = {
                                                         if (song.id == mediaMetadata?.id) {
-                                                            playerConnection.togglePlayPause()
+                                                            playerConnection.player.togglePlayPause()
                                                         } else {
                                                             playerConnection.playQueue(
                                                                 YouTubeQueue(
@@ -305,13 +285,13 @@ fun ChartsScreen(
                     }
 
                     chartsPage?.sections?.find { it.title == "Top music videos" }?.let { topVideosSection ->
-                        item(key = "top_videos_title") {
+                        item {
                             NavigationTitle(
                                 title = stringResource(R.string.top_music_videos),
                                 modifier = Modifier.animateItem(),
                             )
                         }
-                        item(key = "top_videos_content") {
+                        item {
                             LazyRow(
                                 contentPadding = WindowInsets.systemBars
                                     .only(WindowInsetsSides.Horizontal)
@@ -331,7 +311,7 @@ fun ChartsScreen(
                                             .combinedClickable(
                                                 onClick = {
                                                     if (video.id == mediaMetadata?.id) {
-                                                        playerConnection.togglePlayPause()
+                                                        playerConnection.player.togglePlayPause()
                                                     } else {
                                                         playerConnection.playQueue(
                                                             YouTubeQueue(

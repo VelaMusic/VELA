@@ -1,55 +1,76 @@
 @file:Suppress("UnstableApiUsage")
 
+pluginManagement {
+    repositories {
+        google {
+            content {
+                includeGroupAndSubgroups("com.android")
+                includeGroupAndSubgroups("com.google")
+                includeGroupAndSubgroups("androidx")
+            }
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
 
     repositories {
         google()
-        mavenCentral()
-        maven { setUrl("https://jitpack.io") }
-        maven { setUrl("https://maven.aliyun.com/repository/public") }
+        mavenCentral {
+            mavenContent {
+                releasesOnly()
+            }
+        }
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = "JitPack"
+                    setUrl("https://jitpack.io")
+                }
+            }
+            filter {
+                includeGroup("com.github.therealbush")
+                includeGroup("com.github.TeamNewPipe")
+            }
+        }
     }
 }
 
-// foojay-resolver plugin intentionally not used
+// F-Droid doesn't support foojay-resolver plugin
 // plugins {
 //     id("org.gradle.toolchains.foojay-resolver-convention") version("1.0.0")
 // }
 
 rootProject.name = "Vela"
-include(
-    ":app",
-    ":innertube",
-    ":paxsenixlyrics",
-    ":kugou",
-    ":betterlyrics",
-    ":lrclib",
-    ":simpmusic",
-    ":youlyplus",
-    ":shazamkit",
-    ":artistvideo",
-    ":canvas",
-    ":velacanvas",
-    ":applecanvas",
-    ":unison",
-    ":core",
-    ":lyrics",
-    ":playback"
-)
+include(":app")
+include(":core")
+include(":lyrics:kugou")
+include(":lyrics:lrclib")
+include(":lyrics:simpmusic")
+include(":lyrics:paxsenix")
+include(":lyrics:betterlyrics")
+include(":lyrics:unison")
+include(":lastfm")
+include(":canvas")
+include(":shazamkit")
+include(":spotifycore")
+include(":morideobfuscator")
 
-
-// Use a local copy of BravePipe Extractor.
-// We assume, that vela and BravePipe Extractor have the same parent directory.
+// Use a local copy of NewPipe Extractor by uncommenting the lines below.
+// We assume, that Vela and NewPipe Extractor have the same parent directory.
 // If this is not the case, please change the path in includeBuild().
 //
-// For this to work you also need to change the implementation in innertube/build.gradle.kts
+// For this to work you also need to change the implementation in core/build.gradle.kts
 // to one which does not specify a version.
 // From:
 //      implementation(libs.newpipe.extractor)
 // To:
-//      implementation("com.github.bravepipeproject:extractor")
-// includeBuild("../BravePipeExtractor") {
-//     dependencySubstitution {
-//         substitute(module("com.github.bravepipeproject:extractor")).using(project(":extractor"))
-//     }
-// }
+//      implementation("com.github.TeamNewPipe:NewPipeExtractor")
+//includeBuild("../NewPipeExtractor") {
+//    dependencySubstitution {
+//        substitute(module("com.github.TeamNewPipe:NewPipeExtractor")).using(project(":extractor"))
+//    }
+//}

@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.component
 
@@ -23,7 +33,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 
-
+/**
+ * From https://stackoverflow.com/a/69780826
+ */
 @Composable
 fun AutoResizeText(
     text: String,
@@ -62,18 +74,18 @@ fun AutoResizeText(
         fontSize = fontSizeValue.sp,
         onTextLayout = {
             if (it.didOverflowHeight && !readyToDraw) {
-                
+                // Did Overflow height, calculate next font size value
                 val nextFontSizeValue = fontSizeValue - fontSizeRange.step.value
                 if (nextFontSizeValue <= fontSizeRange.min.value) {
-                    
+                    // Reached minimum, set minimum font size and it's readToDraw
                     fontSizeValue = fontSizeRange.min.value
                     readyToDraw = true
                 } else {
-                    
+                    // Text doesn't fit yet and haven't reached minimum text range, keep decreasing
                     fontSizeValue = nextFontSizeValue
                 }
             } else {
-                
+                // Text fits before reaching the minimum, it's readyToDraw
                 readyToDraw = true
             }
         },

@@ -1,4 +1,16 @@
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
 
 package com.vela.app.ui.screens
 
@@ -10,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -28,8 +41,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.vela.app.LocalPlayerAwareWindowInsets
 import com.vela.app.R
-import com.vela.app.constants.GridItemSize
-import com.vela.app.constants.GridItemsSizeKey
 import com.vela.app.constants.GridThumbnailHeight
 import com.vela.app.ui.component.ChipsRow
 import com.vela.app.ui.component.IconButton
@@ -41,9 +52,8 @@ import com.vela.app.ui.menu.YouTubeAlbumMenu
 import com.vela.app.ui.menu.YouTubeArtistMenu
 import com.vela.app.ui.menu.YouTubePlaylistMenu
 import com.vela.app.ui.utils.backToMain
-import com.vela.app.utils.rememberEnumPreference
-import com.vela.app.viewmodels.AccountContentType
 import com.vela.app.viewmodels.AccountViewModel
+import com.vela.app.viewmodels.AccountContentType
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -61,10 +71,9 @@ fun AccountScreen(
     val albums by viewModel.albums.collectAsState()
     val artists by viewModel.artists.collectAsState()
     val selectedContentType by viewModel.selectedContentType.collectAsState()
-    val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
 
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp),
+        columns = GridCells.Adaptive(minSize = GridThumbnailHeight + 24.dp),
         contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {

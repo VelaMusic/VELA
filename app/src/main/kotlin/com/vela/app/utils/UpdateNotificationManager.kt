@@ -1,0 +1,335 @@
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
+
+package com.vela.app.utils
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.datastore.preferences.core.edit
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import com.vela.app.BuildConfig
+import com.vela.app.MainActivity
+import com.vela.app.R
+import com.vela.app.constants.EnableUpdateNotificationKey
+import com.vela.app.constants.LastNotifiedVersionKey
+import com.vela.app.constants.LastUpdateCheckNoteKey
+import com.vela.app.constants.LastUpdateCheckAtKey
+import com.vela.app.constants.LastUpdateCheckKey
+import com.vela.app.constants.UpdateChannel
+import com.vela.app.constants.UpdateChannelKey
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
+import timber.log.Timber
+
+object UpdateNotificationManager {
+    internal const val CHANNEL_ID = "update_notification_channel"
+    private const val NOTIFICATION_ID = 9999
+    private const val WORK_NAME = "update_check_work"
+    private const val IMMEDIATE_WORK_NAME = "immediate_update_check"
+    private const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    fun createNotificationChannel(context: Context) {
+        if (!BuildConfig.UPDATER_AVAILABLE) return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = context.getString(R.string.update_notification_channel_name)
+            val descriptionText = context.getString(R.string.update_notification_channel_desc)
+            val importance = NotificationManager.IMPORTANCE_DEFAULT
+            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
+                description = descriptionText
+            }
+            val notificationManager = context.getSystemService(NotificationManager::class.java)
+            notificationManager?.createNotificationChannel(channel)
+        }
+    }
+
+    fun schedulePeriodicUpdateCheck(context: Context) {
+        if (!BuildConfig.UPDATER_AVAILABLE) {
+            cancelPeriodicUpdateCheck(context)
+            return
+        }
+
+        // NetworkConnected only. The old "battery not low" gate meant a phone on charge or
+        // at low battery would defer the check indefinitely, which is indistinguishable
+        // from the feature being broken.
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        // Six hours is the floor WorkManager allows for periodic work, so the first run is
+        // pulled forward to a few minutes after install rather than six hours.
+        val updateCheckRequest =
+            PeriodicWorkRequestBuilder<UpdateCheckWorker>(6, TimeUnit.HOURS, 30, TimeUnit.MINUTES)
+                .setConstraints(constraints)
+                .setInitialDelay(15, TimeUnit.MINUTES)
+                .build()
+
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            WORK_NAME,
+            ExistingPeriodicWorkPolicy.UPDATE,
+            updateCheckRequest
+        )
+    }
+
+    /**
+     * Runs a one-shot check soon after launch, in addition to the six-hourly periodic work.
+     *
+     * Without this a fresh install could wait up to six hours before its first look at the
+     * release list, which is long enough to miss a release entirely. Repeated calls are
+     * harmless: the work is unique, and a notification is only ever posted once per version.
+     */
+    fun enqueueImmediateUpdateCheck(context: Context) {
+        if (!BuildConfig.UPDATER_AVAILABLE) return
+        val request =
+            OneTimeWorkRequestBuilder<UpdateCheckWorker>()
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build(),
+                )
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.MINUTES)
+                .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            IMMEDIATE_WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            request,
+        )
+    }
+
+    /** Records that a check ran, so the Updates screen can prove the worker is alive. */
+    suspend fun recordCheckPerformed(context: Context, source: String) {
+        runCatching {
+            context.dataStore.edit { settings ->
+                settings[LastUpdateCheckAtKey] = System.currentTimeMillis()
+                settings[LastUpdateCheckNoteKey] = "checked ($source)"
+            }
+        }
+    }
+
+    /** Records a non-fatal outcome, e.g. "already up to date". */
+    suspend fun recordCheckNote(context: Context, note: String) {
+        runCatching {
+            context.dataStore.edit { settings -> settings[LastUpdateCheckNoteKey] = note }
+        }
+    }
+
+    /** Records a failed check so silence has a visible cause instead of being ambiguous. */
+    suspend fun recordCheckFailure(context: Context, error: Throwable) {
+        runCatching {
+            context.dataStore.edit { settings ->
+                settings[LastUpdateCheckAtKey] = System.currentTimeMillis()
+                settings[LastUpdateCheckNoteKey] =
+                    "failed: " + (error.message ?: error::class.java.simpleName)
+            }
+        }
+    }
+
+    fun cancelPeriodicUpdateCheck(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+    }
+
+    fun checkForUpdates(context: Context) {
+        if (!BuildConfig.UPDATER_AVAILABLE) {
+            cancelPeriodicUpdateCheck(context)
+            cancelUpdateNotification(context)
+            return
+        }
+
+        scope.launch {
+            try {
+                val dataStore = context.dataStore
+
+                val isEnabled = dataStore.data.map { it[EnableUpdateNotificationKey] ?: true }.first()
+                if (!isEnabled) {
+                    cancelPeriodicUpdateCheck(context)
+                    return@launch
+                }
+
+                schedulePeriodicUpdateCheck(context)
+
+                val updateChannel = dataStore.data.map { 
+                    it[UpdateChannelKey]?.let { value -> 
+                        try { UpdateChannel.valueOf(value) } catch (e: Exception) { UpdateChannel.STABLE }
+                    } ?: UpdateChannel.STABLE
+                }.first()
+
+                if (updateChannel == UpdateChannel.NIGHTLY) return@launch
+
+                val lastCheck = dataStore.data.map { it[LastUpdateCheckKey] ?: 0L }.first()
+                val now = System.currentTimeMillis()
+
+                if (now - lastCheck < CHECK_INTERVAL_MS) return@launch
+
+                val versionResult = when (updateChannel) {
+                    UpdateChannel.DAILY_NIGHTLY -> Updater.getLatestDailyNightlyVersionName()
+                    else -> Updater.getLatestVersionName()
+                }
+
+                versionResult.onSuccess { latestVersion ->
+                    // Only record the check *after* it succeeded. Previously the timestamp was
+                    // written up front, so a failed fetch still suppressed the next attempt for
+                    // CHECK_INTERVAL_MS - and the failure was swallowed silently.
+                    dataStore.edit { it[LastUpdateCheckKey] = now }
+                    if (!Updater.isSameVersion(latestVersion, BuildConfig.VERSION_NAME)) {
+                        notifyIfNewVersion(context, latestVersion, updateChannel)
+                    }
+                }.onFailure { error ->
+                    // Surface the reason instead of failing silently; this is what made
+                    // "no update notification" impossible to diagnose.
+                    reportUpdateFailure(context, error)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                reportUpdateFailure(context, e)
+            }
+        }
+    }
+
+    suspend fun notifyIfNewVersion(
+        context: Context,
+        latestVersion: String,
+        updateChannel: UpdateChannel = UpdateChannel.STABLE,
+    ) {
+        if (!BuildConfig.UPDATER_AVAILABLE) return
+
+        try {
+            val dataStore = context.dataStore
+            val lastNotified = dataStore.data.map { it[LastNotifiedVersionKey] ?: "" }.first()
+
+            if (latestVersion != lastNotified && !Updater.isSameVersion(latestVersion, BuildConfig.VERSION_NAME)) {
+                // Record the version only once the notification really posted. Previously
+                // this was written unconditionally, so a blocked post (permission denied,
+                // channel off) still marked the release as handled and it was never
+                // retried.
+                if (showUpdateNotification(context, latestVersion, updateChannel)) {
+                    dataStore.edit { it[LastNotifiedVersionKey] = latestVersion }
+                } else {
+                    Timber.tag("UpdateNotification")
+                        .w("Notification not shown (permission or channel disabled); will retry")
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.tag("UpdateNotification").w(e, "Could not post the update notification")
+        }
+    }
+
+    private fun showUpdateNotification(
+        context: Context,
+        newVersion: String,
+        updateChannel: UpdateChannel = UpdateChannel.STABLE,
+    ): Boolean {
+        createNotificationChannel(context)
+
+        // Tapping the notification lands on Settings -> Updates, in-app, with the
+        // update sheet already showing the new changelog.
+        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra(MainActivity.EXTRA_NAVIGATE_TO, MainActivity.ROUTE_UPDATE_SETTINGS)
+        }
+        val openAppPendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // The Download action must actually download: never open github.com here.
+        // This is a broadcast so the download+install happens in-app and the
+        // package installer is launched directly when it finishes.
+        // getLatestDownloadUrlBlocking can fall back to "v<currentVersion>" when the release
+        // lookup fails, which would silently point the Download action at a 404. Prefer the
+        // version we were just notified about, and skip the action if nothing resolves.
+        val downloadUrl = when (updateChannel) {
+            UpdateChannel.DAILY_NIGHTLY -> Updater.getLatestDailyNightlyDownloadUrl()
+            else -> Updater.getLatestDownloadUrlBlocking(newVersion)
+        }
+        val downloadIntent = Intent(context, UpdateInstallReceiver::class.java).apply {
+            action = UpdateInstallReceiver.ACTION_INSTALL_UPDATE
+            putExtra(UpdateInstallReceiver.EXTRA_DOWNLOAD_URL, downloadUrl)
+        }
+        val downloadPendingIntent = PendingIntent.getBroadcast(
+            context,
+            1,
+            downloadIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Opening the notification body always goes to the in-app Updates screen;
+        // it is also the fallback the download receiver uses when a download fails
+        // (that path only ever opens MainActivity, never a browser).
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.small_icon)
+            .setContentTitle(context.getString(R.string.update_notification_title))
+            .setContentText(context.getString(R.string.update_notification_text, newVersion))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(openAppPendingIntent)
+            .setAutoCancel(true)
+            .addAction(
+                R.drawable.download,
+                context.getString(R.string.download),
+                downloadPendingIntent
+            )
+            .build()
+
+        // Android 13+ requires POST_NOTIFICATIONS at runtime. Check first: `notify` throws
+        // when it is missing, and that used to be swallowed so nothing was ever shown and
+        // nothing was logged.
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            Timber.tag("UpdateNotification").w("Notifications are disabled for the app")
+            return false
+        }
+        return try {
+            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+            true
+        } catch (e: SecurityException) {
+            Timber.tag("UpdateNotification").w(e, "Missing POST_NOTIFICATIONS permission")
+            false
+        }
+    }
+
+    /**
+     * Logs why an update check produced no notification. Kept in Timber rather than the UI
+     * because this runs from a background scope.
+     */
+    private fun reportUpdateFailure(context: Context, error: Throwable) {
+        Timber.tag("UpdateNotification").w(error, "Update check failed")
+    }
+
+    fun cancelUpdateNotification(context: Context) {
+        NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+    }
+}

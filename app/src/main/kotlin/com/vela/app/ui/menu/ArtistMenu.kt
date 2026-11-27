@@ -1,45 +1,75 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.menu
 
 import android.content.Intent
 import android.content.res.Configuration
+import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.ListItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.vela.app.LocalDatabase
-import com.vela.app.LocalListenTogetherManager
 import com.vela.app.LocalPlayerConnection
 import com.vela.app.R
 import com.vela.app.constants.ArtistSongSortType
-import com.vela.app.db.entities.SpeedDialItem
+import com.vela.app.constants.SpeedDialSongIdsKey
 import com.vela.app.db.entities.Artist
 import com.vela.app.extensions.toMediaItem
 import com.vela.app.playback.queues.ListQueue
 import com.vela.app.ui.component.ArtistListItem
-import com.vela.app.ui.component.Material3MenuGroup
-import com.vela.app.ui.component.Material3MenuItemData
+import com.vela.app.ui.component.MenuSurfaceSection
 import com.vela.app.ui.component.NewAction
 import com.vela.app.ui.component.NewActionGrid
+import com.vela.app.utils.SpeedDialPin
+import com.vela.app.utils.SpeedDialPinType
+import com.vela.app.utils.parseSpeedDialPins
+import com.vela.app.utils.rememberPreference
+import com.vela.app.utils.serializeSpeedDialPins
+import com.vela.app.utils.toggleSpeedDialPin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -55,16 +85,17 @@ fun ArtistMenu(
     val context = LocalContext.current
     val database = LocalDatabase.current
     val playerConnection = LocalPlayerConnection.current ?: return
-    val listenTogetherManager = LocalListenTogetherManager.current
-    val isGuest = listenTogetherManager?.isGuestPlaybackRestricted == true
     val artistState = database.artist(originalArtist.id).collectAsState(initial = originalArtist)
     val artist = artistState.value ?: originalArtist
-    val isPinned by database.speedDialDao.isPinned(artist.id).collectAsState(initial = false)
+    val (speedDialSongIds, onSpeedDialSongIdsChange) = rememberPreference(SpeedDialSongIdsKey, "")
+    val speedDialPins = remember(speedDialSongIds) { parseSpeedDialPins(speedDialSongIds) }
+    val artistPin = remember(artist.id) { SpeedDialPin(type = SpeedDialPinType.ARTIST, id = artist.id) }
+    val isInSpeedDial = remember(speedDialPins, artistPin) {
+        speedDialPins.any { it.type == artistPin.type && it.id == artistPin.id }
+    }
 
     ArtistListItem(
         artist = artist,
-        shape = MaterialTheme.shapes.large,
-        color = androidx.compose.ui.graphics.Color.Transparent,
         badges = {},
         trailingContent = {},
     )
@@ -75,8 +106,10 @@ fun ArtistMenu(
 
     val configuration = LocalConfiguration.current
     val isPortrait = configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+    val dividerModifier = Modifier.padding(start = 56.dp)
 
     LazyColumn(
+        userScrollEnabled = true,
         contentPadding = PaddingValues(
             start = 0.dp,
             top = 0.dp,
@@ -85,9 +118,9 @@ fun ArtistMenu(
         ),
     ) {
         item {
-            NewActionGrid(
-                actions = buildList {
-                    if (!isGuest) {
+            MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+                NewActionGrid(
+                    actions = buildList {
                         if (artist.songCount > 0) {
                             add(
                                 NewAction(
@@ -152,94 +185,94 @@ fun ArtistMenu(
                                 )
                             )
                         }
-                    }
 
-                    add(
-                        NewAction(
-                            icon = {
-                                Icon(
-                                    painter = painterResource(if (isPinned) R.drawable.remove else R.drawable.add),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(28.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            },
-                            text = if (isPinned) "Unpin" else "Pin",
-                            onClick = {
-                                coroutineScope.launch(Dispatchers.IO) {
-                                    if (isPinned) {
-                                        database.speedDialDao.delete(artist.id)
-                                    } else {
-                                        database.speedDialDao.insert(
-                                            SpeedDialItem(
-                                                id = artist.id,
-                                                title = artist.artist.name,
-                                                subtitle = null,
-                                                thumbnailUrl = artist.artist.thumbnailUrl,
-                                                type = "ARTIST"
+                        if (artist.artist.isYouTubeArtist) {
+                            add(
+                                NewAction(
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.share),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(28.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    },
+                                    text = stringResource(R.string.share),
+                                    onClick = {
+                                        onDismiss()
+                                        val intent = Intent().apply {
+                                            action = Intent.ACTION_SEND
+                                            type = "text/plain"
+                                            putExtra(
+                                                Intent.EXTRA_TEXT,
+                                                "https://music.youtube.com/channel/${artist.id}"
                                             )
-                                        )
+                                        }
+                                        context.startActivity(Intent.createChooser(intent, null))
                                     }
-                                }
-                                onDismiss()
-                            }
-                        )
-                    )
-
-                    if (artist.artist.isYouTubeArtist) {
-                        add(
-                            NewAction(
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(R.drawable.share),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(28.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                },
-                                text = stringResource(R.string.share),
-                                onClick = {
-                                    onDismiss()
-                                val intent = Intent().apply {
-                                        action = Intent.ACTION_SEND
-                                        type = "text/plain"
-                                        putExtra(
-                                            Intent.EXTRA_TEXT,
-                                            "https://vela.ct.ws/channel/${artist.id}"
-                                        )
-                                    }
-                                    context.startActivity(Intent.createChooser(intent, null))
-                                }
+                                )
                             )
-                        )
-                    }
-                },
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp),
-                columns = if (isGuest) 1 else 3
-            )
+                        }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)
+                )
+            }
         }
 
         item {
-            Material3MenuGroup(
-                items = listOf(
-                    Material3MenuItemData(
-                        title = {
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        item {
+            MenuSurfaceSection(modifier = Modifier.padding(vertical = 6.dp)) {
+                Column {
+                    ListItem(
+                        headlineContent = {
                             Text(text = if (artist.artist.bookmarkedAt != null) stringResource(R.string.subscribed) else stringResource(R.string.subscribe))
                         },
-                        icon = {
+                        leadingContent = {
                             Icon(
                                 painter = painterResource(if (artist.artist.bookmarkedAt != null) R.drawable.subscribed else R.drawable.subscribe),
                                 contentDescription = null,
                             )
                         },
-                        onClick = {
+                        modifier = Modifier.clickable {
                             database.transaction {
                                 update(artist.artist.toggleLike())
                             }
-                        }
+                        },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     )
-                )
-            )
+
+                    HorizontalDivider(
+                        modifier = dividerModifier,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                text = stringResource(
+                                    if (isInSpeedDial) R.string.remove_from_speed_dial
+                                    else R.string.pin_to_speed_dial
+                                )
+                            )
+                        },
+                        leadingContent = {
+                            Icon(
+                                painter = painterResource(if (isInSpeedDial) R.drawable.bookmark_filled else R.drawable.bookmark),
+                                contentDescription = null,
+                            )
+                        },
+                        modifier = Modifier.clickable {
+                            val updatedPins = toggleSpeedDialPin(speedDialPins, artistPin)
+                            onSpeedDialSongIdsChange(serializeSpeedDialPins(updatedPins))
+                            onDismiss()
+                        },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
+                }
+            }
         }
     }
 }

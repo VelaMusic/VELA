@@ -1,403 +1,426 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app
-import com.vela.app.R
-import com.vela.app.BuildConfig
 
 import android.app.Application
-import android.app.NotificationChannel
-import android.app.NotificationManager
+import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
-import android.widget.Toast
 import androidx.datastore.preferences.core.edit
-import androidx.work.Configuration
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.disk.directory
-import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
 import coil3.request.allowHardware
 import coil3.request.crossfade
-import com.music.innertube.YouTube
-import com.music.innertube.models.IpVersion
-import com.music.innertube.models.YouTubeLocale
-import com.music.kugou.KuGou
 import com.vela.app.constants.*
-import com.vela.app.di.ApplicationScope
-import com.vela.app.extensions.toEnum
-import com.vela.app.extensions.toInetSocketAddress
-import com.vela.app.utils.CrashHandler
-import com.vela.app.utils.AppContextHolder
-import com.vela.app.utils.LocalAlbumArtFetcher
-import com.vela.app.utils.YouTubeThumbnailFallbackInterceptor
+import com.vela.app.extensions.*
+import com.vela.app.ui.screens.settings.ThemePalettes
+import com.vela.app.ui.theme.ThemeSeedPalette
+import com.vela.app.ui.theme.ThemeSeedPaletteCodec
 import com.vela.app.utils.dataStore
+import com.vela.app.utils.PreferenceStore
+import com.vela.app.utils.ProxyUtils
+import com.vela.app.utils.YTPlayerUtils
+import com.vela.app.utils.get
 import com.vela.app.utils.reportException
+import com.vela.app.utils.clearPlaybackWebAuthSession
+import com.vela.app.utils.clearPlaybackAuthSession
+import com.vela.app.innertube.YouTube
+import com.vela.app.innertube.models.YouTubeLocale
+import com.vela.app.kugou.KuGou
+import com.vela.app.lastfm.LastFM
+import com.vela.app.canvas.VelaCanvas
+import com.vela.app.paxsenix.PaxsenixLyrics
+import com.vela.app.storage.StorageFolderKind
+import com.vela.app.storage.StorageLocationRepository
+import com.vela.app.ui.player.CanvasArtworkPlaybackCache
 import dagger.hilt.android.HiltAndroidApp
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
-import android.content.Intent
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
-import okhttp3.Credentials
+import android.content.Intent
+import java.io.PrintWriter
+import java.io.StringWriter
+import kotlin.system.exitProcess
 import timber.log.Timber
-import java.net.Authenticator
-import java.net.PasswordAuthentication
+import okhttp3.Dns
+import androidx.datastore.preferences.core.stringPreferencesKey
 import java.net.Proxy
-import java.util.Locale
+import java.util.*
+import java.util.concurrent.atomic.AtomicBoolean
+import com.vela.app.playback.stream.ResolveAudioStreamUseCase
+import com.vela.app.playback.stream.YoutubeiStreamRepository
+import com.vela.app.utils.toPlaybackAuthState
+import com.vela.app.utils.potoken.BotGuardTokenGenerator
+import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 
 @HiltAndroidApp
-class App : Application(), SingletonImageLoader.Factory, Configuration.Provider {
+class App : Application(), SingletonImageLoader.Factory {
+    @Inject
+    lateinit var youtubeiStreamRepository: YoutubeiStreamRepository
 
     @Inject
-    @ApplicationScope
-    lateinit var applicationScope: CoroutineScope
+    lateinit var resolveAudioStream: ResolveAudioStreamUseCase
 
-    override val workManagerConfiguration: Configuration
-        get() =
-            Configuration.Builder()
-                .setMinimumLoggingLevel(
-                    if (BuildConfig.DEBUG) android.util.Log.DEBUG else android.util.Log.ERROR
-                )
-                .build()
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    @Volatile private var isInitialized = false
+    private val didRunImageCacheTrim = AtomicBoolean(false)
 
-    override fun startForegroundService(service: Intent): android.content.ComponentName? {
-        return try {
-            super.startForegroundService(service)
-        } catch (e: Exception) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && e is android.app.ForegroundServiceStartNotAllowedException) {
-                Timber.e(e, "Suppressed ForegroundServiceStartNotAllowedException in App")
-                null
-            } else {
-                throw e
-            }
-        }
-    }
-
-    private fun getCurrentProcessName(): String? {
+    private fun currentProcessName(): String? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             Application.getProcessName()
         } else {
             val pid = android.os.Process.myPid()
-            val manager = getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
-            manager?.runningAppProcesses?.firstOrNull { it.pid == pid }?.processName
+            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            activityManager?.runningAppProcesses
+                ?.firstOrNull { it.pid == pid }
+                ?.processName
         }
     }
-
-    private fun isCrashProcess(): Boolean {
-        return getCurrentProcessName() == "$packageName:crash"
-    }
-
-    private fun isMainProcess(): Boolean {
-        val processName = getCurrentProcessName()
-        return processName == null || processName == packageName
-    }
-
+    
+    @OptIn(DelicateCoroutinesApi::class)
     override fun onCreate() {
         super.onCreate()
-
-        if (isCrashProcess()) {
-            CrashHandler.install(this)
-            return
-        }
-
-        // Removed destructive database deletion to preserve user data
-
-        
-        CrashHandler.install(this)
-
-        if (!isMainProcess()) {
-            return
-        }
-
-        AppContextHolder.initialize(this)
-        com.vela.app.utils.cipher.CipherDeobfuscator.initialize(this)
-
-        // Pre-warm the PoToken WebView/BotGuard pipeline in the background so the
-        // first playback doesn't pay the multi-second WebView cold-init cost.
-        com.vela.app.utils.YTPlayerUtils.initialize()
-
-        // Firebase Analytics + Crashlytics — wired by AnalyticsBootstrap.
-        // Crashlytics installs its uncaught-exception handler via its init provider before
-        // Application.onCreate, so CrashHandler's captured default handler already
-        // includes it for fatal-crash delivery.
-        com.vela.app.utils.analytics.AnalyticsBootstrap.install(this)
-
-        if (BuildConfig.DEBUG) {
+        instance = this
+        if (currentProcessName()?.endsWith(":crash") == true) {
             Timber.plant(Timber.DebugTree())
+            return
         }
+        BotGuardTokenGenerator.initialize(this)
+        PreferenceStore.start(this)
+        Timber.plant(Timber.DebugTree())
+        try {
+            Timber.plant(com.vela.app.utils.GlobalLogTree())
+        } catch (_: Exception) {}
 
-        // DNS warming: resolve the streaming/API hosts once in the background so the
-        // first playback request doesn't stall on a cold DNS lookup.
-        applicationScope.launch(Dispatchers.IO) {
-            try {
-                java.net.InetAddress.getByName("music.youtube.com")
-                java.net.InetAddress.getByName("youtubei.googleapis.com")
-                java.net.InetAddress.getByName("googlevideo.com")
-            } catch (e: Exception) {
-                // Ignore — this is best-effort warming only.
-            }
-        }
+        initializeCriticalSync()
+        scheduleUpdateCheck()
+        initializeDeferredAsync()
+    }
 
-        applicationScope.launch(Dispatchers.IO) {
-            // Anonymous, persisted install id — scopes Analytics sessions and
-            // Crashlytics reports to an installation without any PII.
-            val installId = dataStore.data.first()[AnalyticsInstallIdKey]
-                ?: com.vela.app.utils.analytics.freshInstallId().also { newId ->
-                    dataStore.edit { settings ->
-                        settings[AnalyticsInstallIdKey] = newId
-                    }
-                }
-            com.vela.app.utils.analytics.Analytics.setUserId(installId)
-
-            val loggedIn = dataStore.data.first()[InnerTubeCookieKey] != null
-            com.vela.app.utils.analytics.Analytics.setUserProperty(
-                "yt_logged_in", if (loggedIn) "true" else "false",
-            )
-            com.vela.app.utils.analytics.Analytics.logEvent(
-                "app_open",
-                mapOf("nightly" to BuildConfig.IS_NIGHTLY),
-            )
-        }
-
-        applicationScope.launch(Dispatchers.IO) {
-            cachedCoilCacheSize = dataStore.data.map { (try { it[MaxImageCacheSizeKey] } catch(e: Exception) { null }) ?: 512 }.first()
-        }
-
-        applicationScope.launch {
-            initializeSettings()
-            observeSettingsChanges()
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (::youtubeiStreamRepository.isInitialized) {
+            youtubeiStreamRepository.trimMemory(level)
         }
     }
 
-    private suspend fun initializeSettings() {
-        val settings = dataStore.data.first()
-        val locale = Locale.getDefault()
-        val languageTag = locale.language
+    /**
+     * Enqueues the periodic update check as soon as the process starts.
+     *
+     * Previously the only thing that ever called [UpdateNotificationManager.schedulePeriodicUpdateCheck]
+     * was the Updates settings screen, so a user who never opened that screen had no work
+     * enqueued at all and could sit on an old build indefinitely without ever being told a
+     * new release existed. WorkManager's KEEP policy makes this idempotent.
+     */
+    private fun scheduleUpdateCheck() {
+        applicationScope.launch(Dispatchers.IO) {
+            runCatching {
+                com.vela.app.utils.UpdateNotificationManager.createNotificationChannel(this@App)
+                val enabled = dataStore.data.first()[com.vela.app.constants.EnableUpdateNotificationKey] ?: true
+                if (enabled) {
+                    com.vela.app.utils.UpdateNotificationManager.schedulePeriodicUpdateCheck(this@App)
+                    com.vela.app.utils.UpdateNotificationManager.enqueueImmediateUpdateCheck(this@App)
+                }
+            }.onFailure { reportException(it) }
+        }
+    }
 
-        val currentAudioQuality = settings[AudioQualityKey]?.toEnum(defaultValue = AudioQuality.OPUS) ?: AudioQuality.OPUS
-        val currentDownloadQuality = settings[DownloadQualityKey]?.toEnum(defaultValue = DownloadQuality.YOUTUBE) ?: DownloadQuality.YOUTUBE
+    private fun initializeCriticalSync() {
+        CanvasArtworkPlaybackCache.init(this)
+        VelaCanvas.initialize(BuildConfig.CANVAS_BEARER_TOKEN)
+        PaxsenixLyrics.setUserAgent("Vela", BuildConfig.VERSION_NAME)
+
+        val locale = Locale.getDefault()
+        val languageTag = locale.toLanguageTag().replace("-Hant", "")
         YouTube.locale = YouTubeLocale(
-            gl = settings[ContentCountryKey]?.takeIf { it != SYSTEM_DEFAULT }
-                ?: locale.country.takeIf { it in CountryCodeToName }
-                ?: "US",
-            hl = settings[ContentLanguageKey]?.takeIf { it != SYSTEM_DEFAULT }
-                ?: locale.language.takeIf { it in LanguageCodeToName }
+            gl = locale.country.takeIf { it in CountryCodeToName } ?: "US",
+            hl = locale.language.takeIf { it in LanguageCodeToName }
                 ?: languageTag.takeIf { it in LanguageCodeToName }
                 ?: "en"
         )
-
         if (languageTag == "zh-TW") {
             KuGou.useTraditionalChinese = true
         }
+        LastFM.initialize(
+            apiKey = BuildConfig.LASTFM_API_KEY,
+            secret = BuildConfig.LASTFM_SECRET
+        )
+    }
 
-        if (settings[ProxyEnabledKey] == true) {
-            val username = settings[ProxyUsernameKey].orEmpty()
-            val password = settings[ProxyPasswordKey].orEmpty()
-            val type = settings[ProxyTypeKey].toEnum(defaultValue = Proxy.Type.HTTP)
-
-            if (username.isNotEmpty() || password.isNotEmpty()) {
-                if (type == Proxy.Type.HTTP) {
-                    YouTube.proxyAuth = Credentials.basic(username, password)
-                } else {
-                    Authenticator.setDefault(object : Authenticator() {
-                        override fun getPasswordAuthentication(): PasswordAuthentication =
-                            PasswordAuthentication(username, password.toCharArray())
-                    })
-                }
-            }
+    private fun initializeDeferredAsync() {
+        applicationScope.launch(Dispatchers.IO) {
             try {
-                settings[ProxyUrlKey]?.let {
-                    YouTube.proxy = Proxy(type, it.toInetSocketAddress())
+                youtubeiStreamRepository.preWarm()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (throwable: Throwable) {
+                Timber.tag("YoutubeiResolver").w(throwable, "youtubei.js runtime prewarm failed")
+            }
+        }
+
+        applicationScope.launch(Dispatchers.IO) {
+            try {
+                val prefs = dataStore.data.first()
+                
+                prefs[ContentCountryKey]?.takeIf { it != SYSTEM_DEFAULT }?.let { country ->
+                    YouTube.locale = YouTube.locale.copy(gl = country)
                 }
+                prefs[ContentLanguageKey]?.takeIf { it != SYSTEM_DEFAULT }?.let { lang ->
+                    YouTube.locale = YouTube.locale.copy(hl = lang)
+                }
+                
+                LastFM.sessionKey = prefs[LastFMSessionKey]
+
+                ProxyUtils.applyYouTubeProxy(
+                    enabled = prefs[ProxyEnabledKey] == true,
+                    type = prefs[ProxyTypeKey].toEnum(defaultValue = Proxy.Type.HTTP),
+                    host = prefs[ProxyHostKey],
+                    port = prefs[ProxyPortKey],
+                    username = prefs[ProxyUsernameKey],
+                    password = prefs[ProxyPasswordKey],
+                )
+                YouTube.streamBypassProxy = YouTube.proxy != null && prefs[StreamBypassProxyKey] == true
+
+                if (prefs[IpRotationEnabledKey] == true) {
+                    try {
+                        YouTube.enableIpRotation()
+                    } catch (e: Exception) {
+                        reportException(e)
+                    }
+                }
+
+                if (prefs[UseLoginForBrowse] != false) {
+                    YouTube.useLoginForBrowse = true
+                }
+                
+                // Apply random theme on startup if enabled
+                if (prefs[RandomThemeOnStartupKey] == true) {
+                    val randomPalette = ThemePalettes.generateRandomPalette()
+                    val seedPalette = ThemeSeedPalette(
+                        primary = randomPalette.primary,
+                        secondary = randomPalette.secondary,
+                        tertiary = randomPalette.tertiary,
+                        neutral = randomPalette.neutral
+                    )
+                    val encodedPalette = ThemeSeedPaletteCodec.encodeForPreference(seedPalette, "Random")
+                    dataStore.edit { settings ->
+                        settings[CustomThemeColorKey] = encodedPalette
+                    }
+                }
+                
+                isInitialized = true
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@App, getString(R.string.failed_to_parse_proxy), Toast.LENGTH_SHORT).show()
-                }
+                Timber.e(e, "Error during deferred initialization")
                 reportException(e)
             }
         }
 
-        YouTube.useLoginForBrowse = settings[UseLoginForBrowse] ?: true
-        YouTube.ipVersion = settings[IpVersionKey]?.toEnum(defaultValue = IpVersion.AUTO) ?: IpVersion.AUTO
-
-        // Set playback engine preference
-        val engineName = settings[com.vela.app.constants.PlaybackEngineKey]
-        com.vela.app.utils.YTPlayerUtils.playbackEngine = try {
-            if (engineName != null) com.vela.app.constants.PlaybackEngine.valueOf(engineName)
-            else com.vela.app.constants.PlaybackEngine.AUTO
-        } catch (_: Exception) { com.vela.app.constants.PlaybackEngine.AUTO }
-
-        val channel = NotificationChannel(
-            "updates",
-            getString(R.string.update_channel_name),
-            NotificationManager.IMPORTANCE_DEFAULT
-        ).apply {
-            description = getString(R.string.update_channel_desc)
-        }
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(channel)
-    }
-
-    private fun observeSettingsChanges() {
         applicationScope.launch(Dispatchers.IO) {
             dataStore.data
-                .map { (try { it[VisitorDataKey] } catch(e: Exception) { null }) }
-                .distinctUntilChanged()
-                .collect { visitorData ->
-                    YouTube.visitorData = visitorData?.takeIf { it != "null" }
-                        ?: YouTube.visitorData().getOrNull()?.also { newVisitorData ->
-                            dataStore.edit { settings ->
-                                settings[VisitorDataKey] = newVisitorData
-                            }
-                        }
-                }
-        }
-
-        com.vela.app.utils.lastfm.LastFM.initialize(
-            apiKey = BuildConfig.LASTFM_API_KEY.takeIf { it.isNotEmpty() } ?: "",
-            secret = BuildConfig.LASTFM_SECRET.takeIf { it.isNotEmpty() } ?: "",
-        )
-
-        applicationScope.launch(Dispatchers.IO) {
-            dataStore.data
-                .map { (try { it[DataSyncIdKey] } catch(e: Exception) { null }) }
-                .distinctUntilChanged()
-                .collect { dataSyncId ->
-                    YouTube.dataSyncId = dataSyncId?.let {
-                        it.takeIf { !it.contains("||") }
-                            ?: it.takeIf { it.endsWith("||") }?.substringBefore("||")
-                            ?: it.substringAfter("||")
-                    }
-                }
-        }
-
-        applicationScope.launch(Dispatchers.IO) {
-            dataStore.data
-                .map { (try { it[InnerTubeCookieKey] } catch(e: Exception) { null }) }
-                .distinctUntilChanged()
-                .collect { cookie ->
-                    try {
-                        YouTube.cookie = cookie
-                    } catch (e: Exception) {
-                        Timber.e(e, "Could not parse cookie. Clearing existing cookie.")
-                        forgetAccount(this@App)
-                    }
-                }
-        }
-
-
-
-        applicationScope.launch(Dispatchers.IO) {
-            dataStore.data
-                .map { Triple((try { it[ContentCountryKey] } catch(e: Exception) { null }), (try { it[ContentLanguageKey] } catch(e: Exception) { null }), (try { it[AppLanguageKey] } catch(e: Exception) { null })) }
-                .distinctUntilChanged()
-                .collect { (contentCountry, contentLanguage, appLanguage) ->
-                    val systemLocale = Locale.getDefault()
-                    val effectiveAppLocale = appLanguage
-                        ?.takeUnless { it == SYSTEM_DEFAULT }
-                        ?.let { Locale.forLanguageTag(it) }
-                        ?: systemLocale
-
-                    YouTube.locale = YouTubeLocale(
-                        gl = contentCountry?.takeIf { it != SYSTEM_DEFAULT }
-                            ?: effectiveAppLocale.country.takeIf { it in CountryCodeToName }
-                            ?: systemLocale.country.takeIf { it in CountryCodeToName }
-                            ?: "US",
-                        hl = contentLanguage?.takeIf { it != SYSTEM_DEFAULT }
-                            ?: effectiveAppLocale.toLanguageTag().takeIf { it in LanguageCodeToName }
-                            ?: effectiveAppLocale.language.takeIf { it in LanguageCodeToName }
-                            ?: "en"
+                .map {
+                    Triple(
+                        it[EnableDnsOverHttpsKey] ?: false,
+                        it[DnsOverHttpsProviderKey] ?: "Cloudflare",
+                        it[stringPreferencesKey("customDnsUrl")] ?: "https://"
                     )
                 }
+                .distinctUntilChanged()
+                .collect { (enabled, provider, customUrl) ->
+                    if (enabled) {
+                        val dnsProviderUrls = mapOf(
+                            "Google" to "https://dns.google/dns-query",
+                            "Cloudflare" to "https://cloudflare-dns.com/dns-query",
+                            "AdGuard" to "https://dns.adguard.com/dns-query",
+                            "Quad9" to "https://dns.quad9.net/dns-query"
+                        )
+                        val url = if (provider == "Custom") customUrl else dnsProviderUrls[provider]
+                        if (!url.isNullOrBlank() && url.startsWith("https://")) {
+                            runCatching {
+                                YouTube.dns = YouTube.createDnsOverHttps(url)
+                            }
+                        } else {
+                            YouTube.dns = Dns.SYSTEM
+                        }
+                    } else {
+                        YouTube.dns = Dns.SYSTEM
+                    }
+                }
         }
 
         applicationScope.launch(Dispatchers.IO) {
             dataStore.data
-                .map { (try { it[IpVersionKey] } catch(e: Exception) { null }) }
+                .map { it.toPlaybackAuthState() }
                 .distinctUntilChanged()
-                .collect { ipVersion ->
-                    YouTube.ipVersion = ipVersion?.toEnum(defaultValue = IpVersion.AUTO) ?: IpVersion.AUTO
+                .collect { authState ->
+                    YouTube.authState = authState
+                    resolveAudioStream.clear()
+                    YTPlayerUtils.clearPlaybackAuthCaches()
+                    BotGuardTokenGenerator.invalidateAll()
+                    youtubeiStreamRepository.invalidateSessions()
+                    YTPlayerUtils.preWarmYoutubeiPoTokens(authState)
+                }
+        }
+
+        applicationScope.launch(Dispatchers.IO) {
+            dataStore.data
+                .map { it.toPlaybackAuthState().visitorData }
+                .distinctUntilChanged()
+                .collect { visitorData ->
+                    if (!visitorData.isNullOrBlank()) return@collect
+                    YouTube.visitorData().onFailure {
+                        reportException(it)
+                    }.getOrNull()?.also { newVisitorData ->
+                        dataStore.edit { settings ->
+                            settings[VisitorDataKey] = newVisitorData
+                        }
+                    }
+                }
+        }
+
+        try {
+            Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+                try {
+                    val sw = StringWriter()
+                    val pw = PrintWriter(sw)
+                    throwable.printStackTrace(pw)
+                    val stack = sw.toString()
+
+                    val intent = Intent(this@App, DebugActivity::class.java).apply {
+                        putExtra(DebugActivity.EXTRA_STACK_TRACE, stack)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    }
+                    startActivity(intent)
+                    try { Thread.sleep(100) } catch (_: InterruptedException) {}
+                } catch (e: Exception) {
+                    reportException(e)
+                } finally {
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                    exitProcess(2)
+                }
+            }
+        } catch (e: Exception) {
+            reportException(e)
+        }
+        applicationScope.launch(Dispatchers.IO) {
+            dataStore.data
+                .map { it[LastFMSessionKey] }
+                .distinctUntilChanged()
+                .collect { sessionKey ->
+                    LastFM.sessionKey = sessionKey
                 }
         }
     }
 
-    @Volatile
-    private var cachedCoilCacheSize: Int? = null
-
     override fun newImageLoader(context: PlatformContext): ImageLoader {
-        val cacheSize = cachedCoilCacheSize ?: runBlocking {
-            dataStore.data.map { (try { it[MaxImageCacheSizeKey] } catch(e: Exception) { null }) ?: 512 }.first()
+        val smartTrimmer = dataStore[SmartTrimmerKey] ?: false
+        val imageCacheConfig = resolveImageDiskCacheConfig(dataStore[MaxImageCacheSizeKey])
+
+        // Kept as an explicit local (build + attach separated) rather than one long
+        // chained expression: the chained form produced a coroutine lambda that R8
+        // mis-dexed into unverifiable bytecode (java.lang.VerifyError on launch,
+        // "Uninitialized Reference: org.json.JSONException" in
+        // App$newImageLoader$1.invokeSuspend).
+        val diskCacheBuilder =
+            DiskCache.Builder()
+                .directory(StorageLocationRepository.cacheDirectory(this, StorageFolderKind.IMAGE_CACHE))
+                .maxSizeBytes(imageCacheConfig.maxSizeBytes)
+        val diskCache = diskCacheBuilder.build()
+
+        if (smartTrimmer && imageCacheConfig.policy == CachePolicy.ENABLED && didRunImageCacheTrim.compareAndSet(false, true)) {
+            applicationScope.launch(Dispatchers.IO) { trimImageDiskCache(diskCache) }
         }
-        return ImageLoader.Builder(this).apply {
-            crossfade(true)
-            allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
-            components {
-                add(YouTubeThumbnailFallbackInterceptor())
-                add(LocalAlbumArtFetcher.Factory())
+
+        return ImageLoader
+            .Builder(this)
+            .crossfade(true)
+            .allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+            .diskCache(diskCache)
+            .diskCachePolicy(imageCacheConfig.policy)
+            .build()
+    }
+
+    private fun trimImageDiskCache(diskCache: DiskCache) {
+        try {
+            val limitBytes = diskCache.maxSize
+            if (limitBytes <= 0L || limitBytes == Long.MAX_VALUE) return
+
+            val dir = java.io.File(diskCache.directory.toString())
+            if (!dir.exists()) return
+
+            val files = dir.walkTopDown().filter { it.isFile }.sortedBy { it.lastModified() }.toList()
+            var currentSize = files.sumOf { it.length() }
+            if (currentSize <= limitBytes) return
+
+            for (file in files) {
+                if (currentSize <= limitBytes) break
+                val size = file.length()
+                if (runCatching { file.delete() }.getOrDefault(false)) currentSize -= size
             }
-            
-            memoryCache {
-                MemoryCache.Builder()
-                    .maxSizePercent(context, 0.25)
-                    .build()
-            }
-            if (cacheSize == 0) {
-                diskCachePolicy(CachePolicy.DISABLED)
-            } else {
-                diskCache(
-                    DiskCache.Builder()
-                        .directory(cacheDir.resolve("coil"))
-                        .maxSizeBytes(cacheSize * 1024 * 1024L)
-                        .build()
-                )
-            }
-        }.build()
+        } catch (_: Exception) {
+        }
     }
 
     companion object {
-        suspend fun forgetAccount(context: Context) {
-            Timber.d("forgetAccount: Starting logout process")
+        lateinit var instance: App
+            private set
 
-            
-            Timber.d("forgetAccount: Clearing DataStore preferences")
-            context.dataStore.edit { settings ->
-                settings.remove(InnerTubeCookieKey)
-                settings.remove(VisitorDataKey)
-                settings.remove(DataSyncIdKey)
-                settings.remove(AccountNameKey)
-                settings.remove(AccountEmailKey)
-                settings.remove(AccountChannelHandleKey)
+        fun forgetAccount(
+            context: Context,
+            clearWebAuthSession: Boolean = true,
+        ) {
+            if (clearWebAuthSession) {
+                clearPlaybackWebAuthSession(context)
             }
-            Timber.d("forgetAccount: DataStore preferences cleared")
-
-            
-            Timber.d("forgetAccount: Clearing YouTube object auth state")
-            Timber.d("forgetAccount: Before - cookie=${YouTube.cookie?.take(50)}, visitorData=${YouTube.visitorData?.take(20)}, dataSyncId=${YouTube.dataSyncId?.take(20)}")
-            YouTube.cookie = null
-            YouTube.visitorData = null
-            YouTube.dataSyncId = null
-            Timber.d("forgetAccount: After - cookie=${YouTube.cookie}, visitorData=${YouTube.visitorData}, dataSyncId=${YouTube.dataSyncId}")
-
-            
-            Timber.d("forgetAccount: Clearing WebView CookieManager")
-            withContext(Dispatchers.Main) {
-                android.webkit.CookieManager.getInstance().apply {
-                    removeAllCookies { removed ->
-                        Timber.d("forgetAccount: CookieManager.removeAllCookies callback: removed=$removed")
-                    }
-                    flush()
+            // Drop the in-memory playback auth immediately. Otherwise playback keeps using the
+            // previous cookie / PoToken until the DataStore collector catches up, which is how a
+            // signed-out device ends up sending an authenticated-but-dead request and getting
+            // "Please sign in" back from YouTube.
+            YouTube.authState = com.vela.app.innertube.PlaybackAuthState.EMPTY
+            YTPlayerUtils.clearPlaybackAuthCaches()
+            CoroutineScope(Dispatchers.IO).launch {
+                context.dataStore.edit { settings ->
+                    settings.clearPlaybackAuthSession()
                 }
+                context.dataStore.data.first().let { prefs ->
+                    YouTube.authState = prefs.toPlaybackAuthState()
+                }
+                YTPlayerUtils.clearPlaybackAuthCaches()
             }
-            Timber.d("forgetAccount: Logout process complete")
         }
     }
+}
+
+internal data class ImageDiskCacheConfig(
+    val policy: CachePolicy,
+    val maxSizeBytes: Long,
+)
+
+internal fun resolveImageDiskCacheConfig(maxImageCacheSizeMb: Int?): ImageDiskCacheConfig {
+    val sizeMb = maxImageCacheSizeMb ?: 512
+    if (sizeMb == 0) return ImageDiskCacheConfig(policy = CachePolicy.DISABLED, maxSizeBytes = 1L)
+    if (sizeMb < 0) return ImageDiskCacheConfig(policy = CachePolicy.ENABLED, maxSizeBytes = Long.MAX_VALUE)
+    val bytesPerMb = 1024L * 1024L
+    val safeSizeMb = sizeMb.toLong().coerceAtMost(Long.MAX_VALUE / bytesPerMb)
+    return ImageDiskCacheConfig(policy = CachePolicy.ENABLED, maxSizeBytes = safeSizeMb * bytesPerMb)
 }

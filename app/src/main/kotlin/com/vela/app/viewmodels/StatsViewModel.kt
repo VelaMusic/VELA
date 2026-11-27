@@ -1,361 +1,357 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.viewmodels
 
-import android.content.Context
+import androidx.annotation.StringRes
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.music.innertube.YouTube
-import com.vela.app.constants.HideVideoSongsKey
-import com.vela.app.constants.statToPeriod
-import com.vela.app.db.MusicDatabase
-import com.vela.app.db.entities.EventWithSong
-import com.vela.app.ui.screens.OptionStats
-import com.vela.app.utils.dataStore
-import com.vela.app.utils.reportException
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.vela.app.R
+import com.vela.app.constants.statToPeriod
+import com.vela.app.db.MusicDatabase
+import com.vela.app.db.entities.Album
+import com.vela.app.db.entities.Artist
+import com.vela.app.db.entities.EventWithSong
+import com.vela.app.db.entities.ListeningBySlot
+import com.vela.app.db.entities.ListeningSummary
+import com.vela.app.db.entities.ListeningTotals
+import com.vela.app.db.entities.Song
+import com.vela.app.db.entities.SongWithStats
+import com.vela.app.innertube.YouTube
+import com.vela.app.ui.screens.OptionStats
+import com.vela.app.utils.reportException
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import javax.inject.Inject
 
+sealed interface StatsScreenState {
+    data object Loading : StatsScreenState
+
+    data class Success(
+        val data: StatsUiData,
+    ) : StatsScreenState
+
+    data object Empty : StatsScreenState
+
+    data class Error(
+        @StringRes val messageResId: Int,
+    ) : StatsScreenState
+}
+
+@Immutable
+data class StatsUiData(
+    val selectedOption: OptionStats,
+    val selectedPeriodIndex: Int,
+    val mostPlayedSongs: List<Song>,
+    val visibleRankedSongs: List<SongWithStats>,
+    val rankedSongCount: Int,
+    val mostPlayedArtists: List<Artist>,
+    val mostPlayedAlbums: List<Album>,
+    val listeningByHour: List<ListeningBySlot>,
+    val listeningByDayOfWeek: List<ListeningBySlot>,
+    val listeningSummary: ListeningSummary,
+    val firstEvent: EventWithSong?,
+    val isSongListExpanded: Boolean,
+    val canExpandSongList: Boolean,
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class StatsViewModel
-@Inject
-constructor(
-    @ApplicationContext private val context: Context,
-    val database: MusicDatabase,
-) : ViewModel() {
-    val selectedOption = MutableStateFlow(OptionStats.CONTINUOUS)
-    val indexChips = MutableStateFlow(0)
+    @Inject
+    constructor(
+        private val database: MusicDatabase,
+    ) : ViewModel() {
+        private val selectedOption = MutableStateFlow(OptionStats.CONTINUOUS)
+        private val indexChips = MutableStateFlow(0)
+        private val isSongListExpanded = MutableStateFlow(false)
+        private val isYearPickerOpen = MutableStateFlow(false)
+        private val refreshRequest = MutableStateFlow(0L)
 
-    val totalPlayTime =
-        combine(
-            selectedOption,
-            indexChips,
-        ) { selection, t -> Pair(selection, t) }
-            .flatMapLatest { (selection, t) ->
-                val fromTimeStamp = statToPeriod(selection, t)
-                val toTimeStamp = if (selection == OptionStats.CONTINUOUS || t == 0) {
-                    LocalDateTime.now().toInstant(ZoneOffset.UTC).toEpochMilli()
-                } else {
-                    statToPeriod(selection, t - 1)
-                }
-                database.getTotalPlayTimeInRange(fromTimeStamp, toTimeStamp)
-            }.map { it ?: 0L }
-            .stateIn(viewModelScope, SharingStarted.Lazily, 0L)
+        val yearPickerOpen: StateFlow<Boolean> = isYearPickerOpen
 
-    val allTimePlayTime = database.getTotalPlayTimeInRange(0, Long.MAX_VALUE)
-        .map { it ?: 0L }
-        .stateIn(viewModelScope, SharingStarted.Lazily, 0L)
+        fun onOptionSelected(option: OptionStats) {
+            if (selectedOption.value == option) return
+            selectedOption.value = option
+            indexChips.value = 0
+            isSongListExpanded.value = false
+        }
 
-    val uniqueSongsCount =
-        combine(
-            selectedOption,
-            indexChips,
-        ) { selection, t -> Pair(selection, t) }
-            .flatMapLatest { (selection, t) ->
-                val fromTimeStamp = statToPeriod(selection, t)
-                val toTimeStamp = if (selection == OptionStats.CONTINUOUS || t == 0) {
-                    LocalDateTime.now().toInstant(ZoneOffset.UTC).toEpochMilli()
-                } else {
-                    statToPeriod(selection, t - 1)
-                }
-                database.getUniqueSongCountInRange(fromTimeStamp, toTimeStamp)
-            }.stateIn(viewModelScope, SharingStarted.Lazily, 0)
+        fun onChipIndexChanged(index: Int) {
+            if (indexChips.value == index) return
+            indexChips.value = index
+            isSongListExpanded.value = false
+        }
 
-    val uniqueArtistsCount =
-        combine(
-            selectedOption,
-            indexChips,
-        ) { selection, t -> Pair(selection, t) }
-            .flatMapLatest { (selection, t) ->
-                val fromTimeStamp = statToPeriod(selection, t)
-                val toTimeStamp = if (selection == OptionStats.CONTINUOUS || t == 0) {
-                    LocalDateTime.now().toInstant(ZoneOffset.UTC).toEpochMilli()
-                } else {
-                    statToPeriod(selection, t - 1)
-                }
-                database.getUniqueArtistCountInRange(fromTimeStamp, toTimeStamp)
-            }.stateIn(viewModelScope, SharingStarted.Lazily, 0)
+        fun toggleSongListExpanded() {
+            isSongListExpanded.value = !isSongListExpanded.value
+        }
 
-    val uniqueAlbumsCount =
-        combine(
-            selectedOption,
-            indexChips,
-        ) { selection, t -> Pair(selection, t) }
-            .flatMapLatest { (selection, t) ->
-                val fromTimeStamp = statToPeriod(selection, t)
-                val toTimeStamp = if (selection == OptionStats.CONTINUOUS || t == 0) {
-                    LocalDateTime.now().toInstant(ZoneOffset.UTC).toEpochMilli()
-                } else {
-                    statToPeriod(selection, t - 1)
-                }
-                database.getUniqueAlbumCountInRange(fromTimeStamp, toTimeStamp)
-            }.stateIn(viewModelScope, SharingStarted.Lazily, 0)
+        fun showYearPicker() {
+            isYearPickerOpen.value = true
+        }
 
-    val allTimeSongsCount = database.getUniqueSongCountInRange(0, Long.MAX_VALUE)
-        .stateIn(viewModelScope, SharingStarted.Lazily, 0)
+        fun dismissYearPicker() {
+            isYearPickerOpen.value = false
+        }
 
-    val allTimeArtistsCount = database.getUniqueArtistCountInRange(0, Long.MAX_VALUE)
-        .stateIn(viewModelScope, SharingStarted.Lazily, 0)
+        fun retry() {
+            refreshRequest.value += 1L
+        }
 
-    val allTimeAlbumsCount = database.getUniqueAlbumCountInRange(0, Long.MAX_VALUE)
-        .stateIn(viewModelScope, SharingStarted.Lazily, 0)
+        private fun periodPair() = combine(selectedOption, indexChips) { opt, idx -> Pair(opt, idx) }
 
-    val mostPlayedSongsStats =
-        combine(
-            selectedOption,
-            indexChips,
-            context.dataStore.data.map { (try { it[HideVideoSongsKey] } catch(e: Exception) { null }) ?: false }.distinctUntilChanged()
-        ) { first, second, third -> Triple(first, second, third) }
-            .flatMapLatest { (selection, t, hideVideoSongs) ->
-                database
-                    .mostPlayedSongsStats(
+        private fun toTimestamp(
+            selection: OptionStats,
+            t: Int,
+        ): Long =
+            if (selection == OptionStats.CONTINUOUS || t == 0) {
+                LocalDateTime.now().toInstant(ZoneOffset.UTC).toEpochMilli()
+            } else {
+                statToPeriod(selection, t - 1)
+            }
+
+        private val mostPlayedSongsStats =
+            periodPair()
+                .flatMapLatest { (selection, t) ->
+                    database.mostPlayedSongsStats(
                         fromTimeStamp = statToPeriod(selection, t),
                         limit = -1,
-                        toTimeStamp =
-                        if (selection == OptionStats.CONTINUOUS || t == 0) {
-                            LocalDateTime
-                                .now()
-                                .toInstant(
-                                    ZoneOffset.UTC,
-                                ).toEpochMilli()
-                        } else {
-                            statToPeriod(selection, t - 1)
-                        },
-                    ).map { songs ->
-                        if (hideVideoSongs) songs.filter { !it.isVideo } else songs
-                    }
-            }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+                        toTimeStamp = toTimestamp(selection, t),
+                    )
+                }
 
-    val mostPlayedSongs =
-        combine(
-            selectedOption,
-            indexChips,
-            context.dataStore.data.map { (try { it[HideVideoSongsKey] } catch(e: Exception) { null }) ?: false }.distinctUntilChanged()
-        ) { first, second, third -> Triple(first, second, third) }
-            .flatMapLatest { (selection, t, hideVideoSongs) ->
-                database
-                    .mostPlayedSongs(
-                        fromTimeStamp = statToPeriod(selection, t),
-                        limit = -1,
-                        toTimeStamp =
-                        if (selection == OptionStats.CONTINUOUS || t == 0) {
-                            LocalDateTime
-                                .now()
-                                .toInstant(
-                                    ZoneOffset.UTC,
-                                ).toEpochMilli()
-                        } else {
-                            statToPeriod(selection, t - 1)
-                        },
-                    ).map { songs ->
-                        if (hideVideoSongs) songs.filter { !it.song.isVideo } else songs
-                    }
-            }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+        private val mostPlayedSongs =
+            periodPair()
+                .flatMapLatest { (selection, t) ->
+                    database
+                        .mostPlayedSongs(
+                            fromTimeStamp = statToPeriod(selection, t),
+                            limit = -1,
+                            toTimeStamp = toTimestamp(selection, t),
+                        ) // Vela has no blocked-artist feature, so no filter here.
+                }
 
-    val mostPlayedArtists =
-        combine(
-            selectedOption,
-            indexChips,
-        ) { first, second -> Pair(first, second) }
-            .flatMapLatest { (selection, t) ->
-                database
-                    .mostPlayedArtists(
-                        statToPeriod(selection, t),
-                        limit = -1,
-                        toTimeStamp =
-                        if (selection == OptionStats.CONTINUOUS || t == 0) {
-                            LocalDateTime
-                                .now()
-                                .toInstant(
-                                    ZoneOffset.UTC,
-                                ).toEpochMilli()
-                        } else {
-                            statToPeriod(selection, t - 1)
-                        },
-                    ).map { artists ->
-                        artists.filter { it.artist.isYouTubeArtist }
-                    }
-            }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+        private val mostPlayedArtists =
+            periodPair()
+                .flatMapLatest { (selection, t) ->
+                    database
+                        .mostPlayedArtists(
+                            statToPeriod(selection, t),
+                            limit = -1,
+                            toTimeStamp = toTimestamp(selection, t),
+                        ).map { artists -> artists.filter { it.artist.isYouTubeArtist } }
+                }
 
-    val mostPlayedAlbums =
-        combine(
-            selectedOption,
-            indexChips,
-        ) { first, second -> Pair(first, second) }
-            .flatMapLatest { (selection, t) ->
-                database.mostPlayedAlbums(
-                    statToPeriod(selection, t),
-                    limit = -1,
-                    toTimeStamp =
-                    if (selection == OptionStats.CONTINUOUS || t == 0) {
-                        LocalDateTime
-                            .now()
-                            .toInstant(
-                                ZoneOffset.UTC,
-                            ).toEpochMilli()
-                    } else {
-                        statToPeriod(selection, t - 1)
-                    },
+        private val mostPlayedAlbums =
+            periodPair()
+                .flatMapLatest { (selection, t) ->
+                    database
+                        .mostPlayedAlbums(
+                            statToPeriod(selection, t),
+                            limit = -1,
+                            toTimeStamp = toTimestamp(selection, t),
+                        )
+                }
+
+        private val listeningByHour =
+            periodPair()
+                .flatMapLatest { (selection, t) ->
+                    database.listeningByHour(
+                        fromTimestamp = statToPeriod(selection, t),
+                        toTimestamp = toTimestamp(selection, t),
+                    )
+                }
+
+        private val listeningByDayOfWeek =
+            periodPair()
+                .flatMapLatest { (selection, t) ->
+                    database.listeningByDayOfWeek(
+                        fromTimestamp = statToPeriod(selection, t),
+                        toTimestamp = toTimestamp(selection, t),
+                    )
+                }
+
+        private val listeningTotals =
+            periodPair()
+                .flatMapLatest { (selection, t) ->
+                    database.listeningTotals(
+                        fromTimestamp = statToPeriod(selection, t),
+                        toTimestamp = toTimestamp(selection, t),
+                    )
+                }
+
+        private val firstEvent =
+            database
+                .firstEvent()
+
+        private val primaryStats =
+            combine(
+                mostPlayedSongsStats,
+                mostPlayedSongs,
+                mostPlayedArtists,
+                mostPlayedAlbums,
+            ) { rankedSongs, songs, artists, albums ->
+                PrimaryStats(
+                    rankedSongs = rankedSongs,
+                    songs = songs,
+                    artists = artists,
+                    albums = albums,
                 )
-            }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+            }
 
-    val firstEvent =
-        database
-            .firstEvent()
-            .stateIn(viewModelScope, SharingStarted.Lazily, null)
+        private val listeningStats =
+            combine(
+                listeningByHour,
+                listeningByDayOfWeek,
+                listeningTotals,
+                firstEvent,
+            ) { byHour, byDay, totals, first ->
+                ListeningStats(
+                    byHour = byHour,
+                    byDay = byDay,
+                    totals = totals,
+                    firstEvent = first,
+                )
+            }
 
-    /**
-     * Dominant listening "vibe" for the currently selected stats period, with a
-     * comparison against the previous period. Songs are categorized from their
-     * title/artist keywords (phonk, lofi/chill, sad, romantic, high energy, mixed).
-     */
-    val vibeSummary =
-        combine(
-            selectedOption,
-            indexChips,
-        ) { selection, t -> Pair(selection, t) }
-            .flatMapLatest { (selection, t) ->
-                val fromTimeStamp = statToPeriod(selection, t)
-                val toTimeStamp = if (selection == OptionStats.CONTINUOUS || t == 0) {
-                    LocalDateTime.now().toInstant(ZoneOffset.UTC).toEpochMilli()
-                } else {
-                    statToPeriod(selection, t - 1)
-                }
-                val previousFromTimeStamp = statToPeriod(selection, t + 1)
-                val hasPreviousPeriod = previousFromTimeStamp < fromTimeStamp
-
-                if (hasPreviousPeriod) {
+        val screenState: StateFlow<StatsScreenState> =
+            refreshRequest
+                .flatMapLatest {
                     combine(
-                        database.eventsForPeriod(fromTimeStamp, toTimeStamp),
-                        database.eventsForPeriod(previousFromTimeStamp, fromTimeStamp),
-                    ) { currentEvents, previousEvents ->
-                        computeVibeSummary(currentEvents, previousEvents, hasPreviousPeriod)
+                        primaryStats,
+                        listeningStats,
+                        selectedOption,
+                        indexChips,
+                        isSongListExpanded,
+                    ) { primary, listening, option, periodIndex, expanded ->
+                        val summary =
+                            ListeningSummary(
+                                totalPlayCount = listening.totals.totalPlayCount,
+                                totalTimeListened = listening.totals.totalTimeListened,
+                                uniqueSongsCount = primary.rankedSongs.size,
+                                uniqueArtistsCount = primary.artists.size,
+                                uniqueAlbumsCount = primary.albums.size,
+                            )
+                        if (listening.firstEvent == null && summary.totalPlayCount == 0 && primary.rankedSongs.isEmpty()) {
+                            StatsScreenState.Empty
+                        } else {
+                            StatsScreenState.Success(
+                                StatsUiData(
+                                    selectedOption = option,
+                                    selectedPeriodIndex = periodIndex,
+                                    mostPlayedSongs = primary.songs,
+                                    visibleRankedSongs =
+                                        if (expanded) {
+                                            primary.rankedSongs
+                                        } else {
+                                            primary.rankedSongs.take(COLLAPSED_SONG_COUNT)
+                                        },
+                                    rankedSongCount = primary.rankedSongs.size,
+                                    mostPlayedArtists = primary.artists,
+                                    mostPlayedAlbums = primary.albums,
+                                    listeningByHour = listening.byHour,
+                                    listeningByDayOfWeek = listening.byDay,
+                                    listeningSummary = summary,
+                                    firstEvent = listening.firstEvent,
+                                    isSongListExpanded = expanded,
+                                    canExpandSongList = primary.rankedSongs.size > COLLAPSED_SONG_COUNT,
+                                ),
+                            )
+                        }
+                    }.catch { throwable ->
+                        if (throwable is CancellationException) throw throwable
+                        reportException(throwable)
+                        emit(StatsScreenState.Error(R.string.error_unknown))
                     }
-                } else {
-                    database.eventsForPeriod(fromTimeStamp, toTimeStamp).map { currentEvents ->
-                        computeVibeSummary(currentEvents, emptyList(), false)
-                    }
-                }
-            }.stateIn(viewModelScope, SharingStarted.Lazily, VibeSummary())
+                }.stateIn(
+                    scope = viewModelScope,
+                    started = SharingStarted.WhileSubscribed(5_000),
+                    initialValue = StatsScreenState.Loading,
+                )
 
-    init {
-        viewModelScope.launch {
-            mostPlayedArtists.collect { artists ->
-                artists
-                    .map { it.artist }
-                    .filter {
-                        it.thumbnailUrl == null || Duration.between(
-                            it.lastUpdateTime,
-                            LocalDateTime.now()
-                        ) > Duration.ofDays(10)
-                    }.forEach { artist ->
-                        YouTube.artist(artist.id).onSuccess { artistPage ->
-                            database.query {
-                                update(artist, artistPage)
+        init {
+            viewModelScope.launch {
+                mostPlayedArtists.collect { artists ->
+                    artists
+                        .map { it.artist }
+                        .filter {
+                            it.thumbnailUrl == null || Duration.between(
+                                it.lastUpdateTime,
+                                LocalDateTime.now(),
+                            ) > Duration.ofDays(10)
+                        }.forEach { artist ->
+                            YouTube.artist(artist.id).onSuccess { artistPage ->
+                                database.query {
+                                    update(artist, artistPage)
+                                }
                             }
                         }
-                    }
-            }
-        }
-        viewModelScope.launch {
-            mostPlayedAlbums.collect { albums ->
-                albums
-                    .filter {
-                        it.album.songCount == 0
-                    }.forEach { album ->
-                        YouTube
-                            .album(album.id)
-                            .onSuccess { albumPage ->
-                                database.query {
-                                    update(album.album, albumPage, album.artists)
-                                }
-                            }.onFailure {
-                                reportException(it)
-                                if (it.message?.contains("NOT_FOUND") == true) {
-                                    database.query {
-                                        delete(album.album)
-                                    }
-                                }
-                            }
-                    }
-            }
-        }
-    }
-}
-
-/** Dominant listening vibe for a stats period, plus change vs the previous period. */
-data class VibeSummary(
-    val dominantVibe: String = "🎧 Mixed",
-    val dominantVibePlayTime: Long = 0L,
-    val previousVibePlayTime: Long = 0L,
-    val percentageChange: Int = 0,
-    val hasPreviousPeriod: Boolean = false,
-)
-
-private fun categorizeVibe(songTitle: String, artistName: String): String {
-    val text = "$songTitle $artistName".lowercase()
-    return when {
-        text.contains("phonk") || text.contains("drift") -> "🔥 Phonk"
-        text.contains("lofi") || text.contains("chill") || text.contains("slowed") || text.contains("reverb") -> "🌙 Chill"
-        text.contains("sad") || text.contains("broken") || text.contains("lonely") -> "💔 Sad"
-        text.contains("love") || text.contains("romantic") || text.contains("heart") -> "❤️ Romantic"
-        text.contains("bass") || text.contains("remix") || text.contains("hardstyle") || text.contains("edm") -> "⚡ High Energy"
-        else -> "🎧 Mixed"
-    }
-}
-
-private fun computeVibeSummary(
-    currentEvents: List<EventWithSong>,
-    previousEvents: List<EventWithSong>,
-    hasPreviousPeriod: Boolean,
-): VibeSummary {
-    fun vibeOf(events: List<EventWithSong>): Map<String, Long> =
-        events
-            .groupBy { e ->
-                val song = e.song
-                if (song != null) {
-                    categorizeVibe(
-                        song.title,
-                        song.artists.joinToString { it.name },
-                    )
-                } else {
-                    "🎧 Mixed"
                 }
             }
-            .mapValues { (_, grouped) -> grouped.sumOf { it.event.playTime } }
+            viewModelScope.launch {
+                mostPlayedAlbums.collect { albums ->
+                    albums
+                        .filter {
+                            it.album.songCount == 0
+                        }.forEach { album ->
+                            YouTube
+                                .album(album.id)
+                                .onSuccess { albumPage ->
+                                    database.query {
+                                        update(album.album, albumPage, album.artists)
+                                    }
+                                }.onFailure {
+                                    reportException(it)
+                                    if (it.message?.contains("NOT_FOUND") == true) {
+                                        database.query {
+                                            delete(album.album)
+                                        }
+                                    }
+                                }
+                        }
+                }
+            }
+        }
 
-    val currentVibes = vibeOf(currentEvents)
-    val dominant = currentVibes.maxByOrNull { it.value }
-        ?: return VibeSummary(hasPreviousPeriod = hasPreviousPeriod)
+        private data class PrimaryStats(
+            val rankedSongs: List<SongWithStats>,
+            val songs: List<Song>,
+            val artists: List<Artist>,
+            val albums: List<Album>,
+        )
 
-    val previousPlayTime = if (hasPreviousPeriod) {
-        vibeOf(previousEvents)[dominant.key] ?: 0L
-    } else {
-        0L
+        private data class ListeningStats(
+            val byHour: List<ListeningBySlot>,
+            val byDay: List<ListeningBySlot>,
+            val totals: ListeningTotals,
+            val firstEvent: EventWithSong?,
+        )
+
+        private companion object {
+            const val COLLAPSED_SONG_COUNT = 5
+        }
     }
-    val change = when {
-        !hasPreviousPeriod || previousPlayTime == 0L -> 100
-        else -> ((dominant.value - previousPlayTime).toDouble() / previousPlayTime * 100).toInt()
-    }
-    return VibeSummary(
-        dominantVibe = dominant.key,
-        dominantVibePlayTime = dominant.value,
-        previousVibePlayTime = previousPlayTime,
-        percentageChange = change,
-        hasPreviousPeriod = hasPreviousPeriod,
-    )
-}

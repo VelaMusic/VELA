@@ -1,18 +1,33 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.component
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import com.music.innertube.models.PlaylistItem
-import com.music.innertube.models.WatchEndpoint
+import com.vela.app.innertube.models.PlaylistItem
+import com.vela.app.innertube.models.WatchEndpoint
 import com.vela.app.R
 import com.vela.app.db.entities.Album
 import com.vela.app.db.entities.Artist
@@ -21,7 +36,6 @@ import com.vela.app.ui.menu.AlbumMenu
 import com.vela.app.ui.menu.ArtistMenu
 import com.vela.app.ui.menu.PlaylistMenu
 import com.vela.app.ui.menu.YouTubePlaylistMenu
-import com.vela.app.utils.libraryPlaylistRoute
 import kotlinx.coroutines.CoroutineScope
 
 @Composable
@@ -164,10 +178,23 @@ fun LibraryPlaylistListItem(
     menuState: MenuState,
     coroutineScope: CoroutineScope,
     playlist: Playlist,
-    modifier: Modifier = Modifier
-) = PlaylistListItem(
-    playlist = playlist,
-    trailingContent = {
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(26.dp),
+    showDragHandle: Boolean = false,
+    dragHandleModifier: Modifier = Modifier,
+) {
+    val trailing: @Composable RowScope.() -> Unit = {
+        if (showDragHandle) {
+            androidx.compose.material3.IconButton(
+                onClick = { },
+                modifier = dragHandleModifier,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.drag_handle),
+                    contentDescription = null,
+                )
+            }
+        }
         androidx.compose.material3.IconButton(
             onClick = {
                 menuState.show {
@@ -213,84 +240,27 @@ fun LibraryPlaylistListItem(
                 contentDescription = null
             )
         }
-    },
-    modifier = modifier
-        .fillMaxWidth()
-        .clickable {
-            navController.navigate(
-                libraryPlaylistRoute(
-                    localPlaylistId = playlist.id,
-                    browseId = playlist.playlist.browseId,
-                    isEditable = playlist.playlist.isEditable,
-                    songCount = playlist.songCount,
-                    remoteSongCount = playlist.playlist.remoteSongCount,
-                )
-            )
-        }
-)
+    }
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun LibraryPlaylistGridItem(
-    navController: NavController,
-    menuState: MenuState,
-    coroutineScope: CoroutineScope,
-    playlist: Playlist,
-    modifier: Modifier = Modifier
-) = PlaylistGridItem(
-    playlist = playlist,
-    fillMaxWidth = true,
-    modifier = modifier
-        .fillMaxWidth()
-        .combinedClickable(
-            onClick = {
-                navController.navigate(
-                    libraryPlaylistRoute(
-                        localPlaylistId = playlist.id,
-                        browseId = playlist.playlist.browseId,
-                        isEditable = playlist.playlist.isEditable,
-                        songCount = playlist.songCount,
-                        remoteSongCount = playlist.playlist.remoteSongCount,
-                    )
-                )
-            },
-            onLongClick = {
-                menuState.show {
-                    if (playlist.playlist.isEditable || playlist.songCount != 0) {
-                        PlaylistMenu(
-                            playlist = playlist,
-                            coroutineScope = coroutineScope,
-                            onDismiss = menuState::dismiss
-                        )
-                    } else {
-                        playlist.playlist.browseId?.let { browseId ->
-                            YouTubePlaylistMenu(
-                                playlist = PlaylistItem(
-                                    id = browseId,
-                                    title = playlist.playlist.name,
-                                    author = null,
-                                    songCountText = null,
-                                    thumbnail = playlist.thumbnails.getOrNull(0) ?: "",
-                                    playEndpoint = WatchEndpoint(
-                                        playlistId = browseId,
-                                        params = playlist.playlist.playEndpointParams
-                                    ),
-                                    shuffleEndpoint = WatchEndpoint(
-                                        playlistId = browseId,
-                                        params = playlist.playlist.shuffleEndpointParams
-                                    ),
-                                    radioEndpoint = WatchEndpoint(
-                                        playlistId = "RDAMPL$browseId",
-                                        params = playlist.playlist.radioEndpointParams
-                                    ),
-                                    isEditable = false
-                                ),
-                                coroutineScope = coroutineScope,
-                                onDismiss = menuState::dismiss
-                            )
-                        }
-                    }
-                }
-            }
-        )
-)
+    val openPlaylist: () -> Unit = {
+        if (
+            !playlist.playlist.isEditable &&
+            playlist.songCount == 0 &&
+            playlist.playlist.remoteSongCount != 0
+        ) {
+            navController.navigate("online_playlist/${playlist.playlist.browseId}")
+        } else {
+            navController.navigate("local_playlist/${playlist.id}")
+        }
+    }
+
+    LibraryPlaylistFeatureCard(
+        playlist = playlist,
+        shape = shape,
+        trailingContent = trailing,
+        modifier = modifier
+            .fillMaxWidth()
+            .focusable()
+            .clickable(onClick = openPlaylist),
+    )
+}

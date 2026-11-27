@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.viewmodels
 
@@ -6,12 +16,11 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.music.innertube.YouTube
-import com.music.innertube.models.BrowseEndpoint
-import com.music.innertube.models.filterExplicit
-import com.music.innertube.models.filterVideoSongs
+import com.vela.app.innertube.YouTube
+import com.vela.app.innertube.models.BrowseEndpoint
+import com.vela.app.innertube.models.filterExplicit
+import com.vela.app.innertube.pages.ArtistItemsPageLayout
 import com.vela.app.constants.HideExplicitKey
-import com.vela.app.constants.HideVideoSongsKey
 import com.vela.app.models.ItemsPage
 import com.vela.app.utils.dataStore
 import com.vela.app.utils.get
@@ -32,9 +41,11 @@ constructor(
 ) : ViewModel() {
     private val browseId = savedStateHandle.get<String>("browseId")!!
     private val params = savedStateHandle.get<String>("params")
+        ?.takeUnless { it.isBlank() || it == "null" }
 
     val title = MutableStateFlow("")
     val itemsPage = MutableStateFlow<ItemsPage?>(null)
+    val itemsLayout = MutableStateFlow(ArtistItemsPageLayout.LIST)
 
     init {
         viewModelScope.launch {
@@ -45,15 +56,13 @@ constructor(
                         params = params,
                     ),
                 ).onSuccess { artistItemsPage ->
-                    val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                    val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
                     title.value = artistItemsPage.title
+                    itemsLayout.value = artistItemsPage.layout
                     itemsPage.value =
                         ItemsPage(
                             items = artistItemsPage.items
                                 .distinctBy { it.id }
-                                .filterExplicit(hideExplicit)
-                                .filterVideoSongs(hideVideoSongs),
+                                .filterExplicit(context.dataStore.get(HideExplicitKey, false)),
                             continuation = artistItemsPage.continuation,
                         )
                 }.onFailure {
@@ -69,15 +78,12 @@ constructor(
             YouTube
                 .artistItemsContinuation(continuation)
                 .onSuccess { artistItemsContinuationPage ->
-                    val hideExplicit = context.dataStore.get(HideExplicitKey, false)
-                    val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
                     itemsPage.update {
                         ItemsPage(
                             items =
                             (oldItemsPage.items + artistItemsContinuationPage.items)
                                 .distinctBy { it.id }
-                                .filterExplicit(hideExplicit)
-                                .filterVideoSongs(hideVideoSongs),
+                                .filterExplicit(context.dataStore.get(HideExplicitKey, false)),
                             continuation = artistItemsContinuationPage.continuation,
                         )
                     }

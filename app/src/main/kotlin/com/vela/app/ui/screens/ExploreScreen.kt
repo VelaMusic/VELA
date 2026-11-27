@@ -1,44 +1,32 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -56,12 +44,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
-import com.music.innertube.models.SongItem
-import com.music.innertube.models.WatchEndpoint
+import com.vela.app.innertube.models.*
 import com.vela.app.LocalPlayerAwareWindowInsets
 import com.vela.app.LocalPlayerConnection
 import com.vela.app.R
 import com.vela.app.constants.ListItemHeight
+import com.vela.app.extensions.togglePlayPause
 import com.vela.app.models.toMediaMetadata
 import com.vela.app.playback.queues.YouTubeQueue
 import com.vela.app.ui.component.LocalMenuState
@@ -74,7 +62,6 @@ import com.vela.app.ui.component.shimmer.TextPlaceholder
 import com.vela.app.ui.menu.YouTubeAlbumMenu
 import com.vela.app.ui.menu.YouTubeSongMenu
 import com.vela.app.ui.utils.SnapLayoutInfoProvider
-import com.vela.app.utils.listItemShape
 import com.vela.app.viewmodels.ChartsViewModel
 import com.vela.app.viewmodels.ExploreViewModel
 
@@ -88,7 +75,7 @@ fun ExploreScreen(
     val menuState = LocalMenuState.current
     val haptic = LocalHapticFeedback.current
     val playerConnection = LocalPlayerConnection.current ?: return
-    val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
+    val isPlaying by playerConnection.isPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
 
     val explorePage by exploreViewModel.explorePage.collectAsState()
@@ -231,7 +218,7 @@ fun ExploreScreen(
                     NavigationTitle(
                         title = when (section.title) {
                             "Trending" -> stringResource(R.string.trending)
-                            else -> section.title.ifEmpty { stringResource(R.string.charts) }
+                            else -> section.title ?: stringResource(R.string.charts)
                         },
                     )
                     BoxWithConstraints(
@@ -261,16 +248,15 @@ fun ExploreScreen(
                                 .fillMaxWidth()
                                 .height(ListItemHeight * 4),
                         ) {
-                            itemsIndexed(
+                            items(
                                 items = section.items.filterIsInstance<SongItem>().distinctBy { it.id },
-                                key = { _, it -> it.id },
-                            ) { index, song ->
+                                key = { it.id },
+                            ) { song ->
                                 YouTubeListItem(
                                     item = song,
                                     isActive = song.id == mediaMetadata?.id,
                                     isPlaying = isPlaying,
                                     isSwipeable = false,
-                                    shape = listItemShape(index % 4, 4),
                                     trailingContent = {
                                         IconButton(
                                             onClick = {
@@ -294,7 +280,7 @@ fun ExploreScreen(
                                         .combinedClickable(
                                             onClick = {
                                                 if (song.id == mediaMetadata?.id) {
-                                                    playerConnection.togglePlayPause()
+                                                    playerConnection.player.togglePlayPause()
                                                 } else {
                                                     playerConnection.playQueue(
                                                         YouTubeQueue(
@@ -386,7 +372,7 @@ fun ExploreScreen(
                                     .combinedClickable(
                                         onClick = {
                                             if (video.id == mediaMetadata?.id) {
-                                                playerConnection.togglePlayPause()
+                                                playerConnection.player.togglePlayPause()
                                             } else {
                                                 playerConnection.playQueue(
                                                     YouTubeQueue(
@@ -417,7 +403,7 @@ fun ExploreScreen(
                     NavigationTitle(
                         title = stringResource(R.string.mood_and_genres),
                         onClick = {
-                            navController.navigate("mood_and_genres")
+                            navController.navigate(Screens.MoodAndGenres.route)
                         },
                     )
                     LazyHorizontalGrid(
@@ -425,9 +411,15 @@ fun ExploreScreen(
                         contentPadding = PaddingValues(6.dp),
                         modifier = Modifier.height((MoodAndGenresButtonHeight + 12.dp) * 4 + 12.dp),
                     ) {
-                        items(moodAndGenres) {
+                        items(
+                            items = moodAndGenres,
+                            key = { item -> "${item.title}:${item.endpoint.browseId}:${item.endpoint.params}" },
+                            contentType = { "moodAndGenres" },
+                        ) {
                             MoodAndGenresButton(
                                 title = it.title,
+                                stripeColor = it.stripeColor,
+                                endpoint = it.endpoint,
                                 onClick = {
                                     navController.navigate("youtube_browse/${it.endpoint.browseId}?params=${it.endpoint.params}")
                                 },

@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.screens.artist
 
@@ -26,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -43,6 +54,7 @@ import com.vela.app.constants.ArtistSongSortTypeKey
 import com.vela.app.constants.CONTENT_TYPE_HEADER
 import com.vela.app.constants.HideExplicitKey
 import com.vela.app.extensions.toMediaItem
+import com.vela.app.extensions.togglePlayPause
 import com.vela.app.playback.queues.ListQueue
 import com.vela.app.ui.component.HideOnScrollFAB
 import com.vela.app.ui.component.IconButton
@@ -51,7 +63,6 @@ import com.vela.app.ui.component.SongListItem
 import com.vela.app.ui.component.SortHeader
 import com.vela.app.ui.menu.SongMenu
 import com.vela.app.ui.utils.backToMain
-import com.vela.app.utils.listItemShape
 import com.vela.app.utils.rememberEnumPreference
 import com.vela.app.utils.rememberPreference
 import com.vela.app.viewmodels.ArtistSongsViewModel
@@ -67,7 +78,7 @@ fun ArtistSongsScreen(
     val menuState = LocalMenuState.current
     val haptic = LocalHapticFeedback.current
     val playerConnection = LocalPlayerConnection.current ?: return
-    val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
+    val isPlaying by playerConnection.isPlaying.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
 
     val (sortType, onSortTypeChange) = rememberEnumPreference(
@@ -131,7 +142,6 @@ fun ArtistSongsScreen(
                     showInLibraryIcon = true,
                     isActive = song.id == mediaMetadata?.id,
                     isPlaying = isPlaying,
-                    shape = listItemShape(index, songs.size),
                     trailingContent = {
                         IconButton(
                             onClick = {
@@ -156,7 +166,7 @@ fun ArtistSongsScreen(
                         .combinedClickable(
                             onClick = {
                                 if (song.id == mediaMetadata?.id) {
-                                    playerConnection.togglePlayPause()
+                                    playerConnection.player.togglePlayPause()
                                 } else {
                                     playerConnection.playQueue(
                                         ListQueue(
@@ -201,6 +211,7 @@ fun ArtistSongsScreen(
         HideOnScrollFAB(
             lazyListState = lazyListState,
             icon = R.drawable.shuffle,
+            label = context.getString(R.string.shuffle),
             onClick = {
                 playerConnection.playQueue(
                     ListQueue(

@@ -1,4 +1,14 @@
-
+/*
+ * NomaTune (2026)
+ * © Shahdullah — github.com/shahdullah
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ *
+ * Based on ArchiveTune (2026)
+ * © Rukamori — github.com/rukamori
+ * GPL-3.0 License | Contributors: see git history
+ * Do not remove or alter this notice. - Per GPL-3.0 Section 4 & Section 5
+ */
 
 package com.vela.app.ui.screens
  
@@ -19,17 +29,13 @@ package com.vela.app.ui.screens
  import androidx.compose.runtime.rememberCoroutineScope
  import androidx.compose.ui.Modifier
  import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.res.stringResource
  import androidx.compose.ui.unit.dp
  import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
  import androidx.navigation.NavController
- import com.music.innertube.models.AlbumItem
- import com.music.innertube.models.ArtistItem
- import com.music.innertube.models.PlaylistItem
  import com.vela.app.LocalPlayerAwareWindowInsets
  import com.vela.app.LocalPlayerConnection
  import com.vela.app.R
- import com.vela.app.constants.GridItemSize
- import com.vela.app.constants.GridItemsSizeKey
  import com.vela.app.constants.GridThumbnailHeight
  import com.vela.app.ui.component.IconButton
  import com.vela.app.ui.component.LocalMenuState
@@ -40,10 +46,12 @@ package com.vela.app.ui.screens
  import com.vela.app.ui.menu.YouTubeArtistMenu
  import com.vela.app.ui.menu.YouTubePlaylistMenu
  import com.vela.app.ui.utils.backToMain
- import com.vela.app.utils.rememberEnumPreference
  import com.vela.app.viewmodels.BrowseViewModel
-
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+ import com.vela.app.innertube.models.AlbumItem
+ import com.vela.app.innertube.models.ArtistItem
+ import com.vela.app.innertube.models.PlaylistItem
+ 
+ @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
  @Composable
  fun BrowseScreen(
     navController: NavController,
@@ -53,17 +61,16 @@ package com.vela.app.ui.screens
 ) {
      val menuState = LocalMenuState.current
      val playerConnection = LocalPlayerConnection.current ?: return
-     val isPlaying by playerConnection.isEffectivelyPlaying.collectAsState()
+     val isPlaying by playerConnection.isPlaying.collectAsState()
      val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
  
      val title by viewModel.title.collectAsState()
      val items by viewModel.items.collectAsState()
  
      val coroutineScope = rememberCoroutineScope()
-     val gridItemSize by rememberEnumPreference(GridItemsSizeKey, GridItemSize.BIG)
  
      LazyVerticalGrid(
-         columns = GridCells.Adaptive(minSize = GridThumbnailHeight + if (gridItemSize == GridItemSize.BIG) 24.dp else (-24).dp),
+         columns = GridCells.Adaptive(minSize = GridThumbnailHeight + 24.dp),
          contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues()
      ) {
          items?.let { items ->
@@ -84,7 +91,7 @@ package com.vela.app.ui.screens
                                      is PlaylistItem -> navController.navigate("online_playlist/${item.id}")
                                      is ArtistItem -> navController.navigate("artist/${item.id}")
                                      else -> {
-                                         
+                                         // Do nothing
                                      }
                                  }
                              },
@@ -114,7 +121,7 @@ package com.vela.app.ui.screens
                                          }
  
                                          else -> {
-                                             
+                                             // Do nothing
                                          }
                                      }
                                  }
