@@ -166,6 +166,7 @@ fun LazyListScope.queueRiver(
             QueueRiverRow(
                 window = window,
                 reorderableState = reorderableState,
+                dragHandleModifier = Modifier.draggableHandle(),
                 onPlay = {
                     playerConnection.player.seekToDefaultPosition(window.firstPeriodIndex)
                     playerConnection.player.playWhenReady = true
@@ -239,6 +240,7 @@ private fun QueueCurrentCard(metadata: MediaMetadata) {
 private fun QueueRiverRow(
     window: Timeline.Window,
     reorderableState: ReorderableLazyListState,
+    dragHandleModifier: Modifier = Modifier,
     onPlay: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -342,7 +344,7 @@ private fun QueueRiverRow(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 modifier = Modifier
                     .size(20.dp)
-                    .draggableHandle(),
+                    .then(dragHandleModifier),
             )
         }
     }

@@ -174,26 +174,34 @@ object VelaMotion {
 // cannot be pushed through the GitHub App route. Falls back to the system
 // sans-serif while a family is still downloading, never blocks first paint.
 //
-// NOTE: `androidx.compose.ui:ui-text-google-fonts` is the dep; the download
-// uses the Google Fonts default provider, so no font_certs.xml is needed.
+// NOTE: `androidx.compose.ui:ui-text-google-fonts` is the dep; the provider's
+// certificates live in res/values/font_certs.xml (currently a placeholder).
 // ---------------------------------------------------------------------------
 
-// Downloadable fonts use the Google Fonts DEFAULT provider (Compose 1.10:
-// GoogleFont no longer takes a Provider — Font(googleFont, weight) wires the
-// default provider, which carries Google's own certificates). The placeholder
-// res/values/font_certs.xml is currently unused; real certs are only needed
-// if a custom provider is ever wired in.
+// Downloadable fonts via the Google Fonts provider. Compose 1.10 changed the
+// API: GoogleFont takes only the name; the Provider is now the 2nd argument
+// of Font — Font(googleFont, provider, weight). The provider's certificates
+// come from res/values/font_certs.xml, which is currently a PLACEHOLDER (not
+// real Google certs), so downloads fall back to the system font until the
+// real certs are pasted in. TODO: fetch the real certs from Google's
+// downloadable-fonts guide.
+private val GoogleFontProvider = GoogleFont.Provider(
+    providerAuthority = "com.google.android.gms.fonts",
+    providerPackage = "com.google.android.gms",
+    certificates = com.vela.app.R.array.com_google_android_gms_fonts_certs,
+)
+
 private val JakartaSansFamily = FontFamily(
-    Font(GoogleFont("Plus Jakarta Sans"), FontWeight.Medium),
-    Font(GoogleFont("Plus Jakarta Sans"), FontWeight.SemiBold),
-    Font(GoogleFont("Plus Jakarta Sans"), FontWeight.Bold),
-    Font(GoogleFont("Plus Jakarta Sans"), FontWeight.ExtraBold),
+    Font(GoogleFont("Plus Jakarta Sans"), GoogleFontProvider, FontWeight.Medium),
+    Font(GoogleFont("Plus Jakarta Sans"), GoogleFontProvider, FontWeight.SemiBold),
+    Font(GoogleFont("Plus Jakarta Sans"), GoogleFontProvider, FontWeight.Bold),
+    Font(GoogleFont("Plus Jakarta Sans"), GoogleFontProvider, FontWeight.ExtraBold),
 )
 
 private val InterFamily = FontFamily(
-    Font(GoogleFont("Inter"), FontWeight.Normal),
-    Font(GoogleFont("Inter"), FontWeight.Medium),
-    Font(GoogleFont("Inter"), FontWeight.SemiBold),
+    Font(GoogleFont("Inter"), GoogleFontProvider, FontWeight.Normal),
+    Font(GoogleFont("Inter"), GoogleFontProvider, FontWeight.Medium),
+    Font(GoogleFont("Inter"), GoogleFontProvider, FontWeight.SemiBold),
 )
 
 /** Vela type scale — tokens.md §2. Headings Jakarta Sans, body Inter. */
