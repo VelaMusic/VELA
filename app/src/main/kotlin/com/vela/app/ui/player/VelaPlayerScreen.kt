@@ -78,7 +78,7 @@ import com.vela.app.ui.theme.VelaShapes
 import com.vela.app.ui.theme.VelaSpace
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import sh.calvin.reorderable.move
+import com.vela.app.extensions.move
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 // ---------------------------------------------------------------------------
@@ -457,7 +457,7 @@ fun VelaPlayerScreen(
                     }
                     IconButton(onClick = { playerConnection.seekToPrevious() }) {
                         Icon(
-                            imageVector = Icons.Default.SkipPrevious,
+                            imageVector = Icons.Filled.SkipPrevious,
                             contentDescription = "Previous",
                             tint = Color.White.copy(alpha = 0.85f),
                             modifier = Modifier.size(32.dp),
@@ -481,7 +481,7 @@ fun VelaPlayerScreen(
                     }
                     IconButton(onClick = { playerConnection.seekToNext() }) {
                         Icon(
-                            imageVector = Icons.Default.SkipNext,
+                            imageVector = Icons.Filled.SkipNext,
                             contentDescription = "Next",
                             tint = Color.White.copy(alpha = 0.85f),
                             modifier = Modifier.size(32.dp),

@@ -41,13 +41,13 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.Timeline
 import coil3.compose.AsyncImage
 import com.vela.app.LocalPlayerConnection
+import com.vela.app.extensions.metadata
 import com.vela.app.models.MediaMetadata
 import com.vela.app.ui.theme.VelaGradientBrush
 import com.vela.app.ui.theme.VelaShapes
 import com.vela.app.ui.theme.VelaSpace
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableLazyListState
-import sh.calvin.reorderable.detectReorderAfterLongPress
 
 // ---------------------------------------------------------------------------
 // Queue River — the up-next queue as one flowing list inside the player
@@ -342,7 +342,7 @@ private fun QueueRiverRow(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 modifier = Modifier
                     .size(20.dp)
-                    .detectReorderAfterLongPress(reorderableState),
+                    .draggableHandle(),
             )
         }
     }
