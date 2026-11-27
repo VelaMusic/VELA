@@ -125,9 +125,8 @@ class App : Application(), SingletonImageLoader.Factory, Configuration.Provider 
         // first playback doesn't pay the multi-second WebView cold-init cost.
         com.vela.app.utils.YTPlayerUtils.initialize()
 
-        // Firebase Analytics + Crashlytics — real wiring on the gms flavor, no-op on
-        // foss (same-named AnalyticsBootstrap per flavor source set). Crashlytics
-        // installs its uncaught-exception handler via its init provider before
+        // Firebase Analytics + Crashlytics — wired by AnalyticsBootstrap.
+        // Crashlytics installs its uncaught-exception handler via its init provider before
         // Application.onCreate, so CrashHandler's captured default handler already
         // includes it for fatal-crash delivery.
         com.vela.app.utils.analytics.AnalyticsBootstrap.install(this)

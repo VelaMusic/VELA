@@ -11,7 +11,7 @@ dependencyResolutionManagement {
     }
 }
 
-// F-Droid doesn't support foojay-resolver plugin
+// foojay-resolver plugin intentionally not used
 // plugins {
 //     id("org.gradle.toolchains.foojay-resolver-convention") version("1.0.0")
 // }

@@ -86,13 +86,6 @@ android {
 
     flavorDimensions += listOf("abi", "variant")
     productFlavors {
-        // FOSS variant (default) - F-Droid compatible, no Google Play Services
-        create("foss") {
-            dimension = "variant"
-            isDefault = true
-            buildConfigField("Boolean", "CAST_AVAILABLE", "false")
-        }
-
         // GMS variant - with Google Cast support (requires Google Play Services)
         create("gms") {
             dimension = "variant"
@@ -133,8 +126,7 @@ android {
             keyPassword = "android"
         }
         // Define the release signing config only when the keystore
-        // credentials exist in the environment. Clean checkouts (e.g.
-        // F-Droid's builders, which sign with their own key) have neither
+        // credentials exist in the environment. Clean checkouts have neither
         // the keystore nor the passwords, and defining the config there
         // fails their build at signing validation. CI is unaffected: it
         // sets these env vars, and its injected signing
@@ -260,7 +252,7 @@ dependencies {
 
 
 
-    // Firebase - GMS flavor only (excluded from F-Droid / FOSS builds)
+    // Firebase
     "gmsImplementation"(platform("com.google.firebase:firebase-bom:34.19.0"))
     "gmsImplementation"("com.google.firebase:firebase-analytics")
     "gmsImplementation"("com.google.firebase:firebase-crashlytics")
@@ -269,7 +261,7 @@ dependencies {
     // this dependency up and uploads native symbols on release builds.
     "gmsImplementation"("com.google.firebase:firebase-crashlytics-ndk")
 
-    // Google Drive Sync - GMS flavor only
+    // Google Drive Sync
     "gmsImplementation"(libs.play.services.auth)
     "gmsImplementation"(libs.google.api.client.android)
     "gmsImplementation"(libs.google.api.services.drive) {
@@ -322,7 +314,7 @@ dependencies {
     implementation(libs.media3.ui)
     implementation(libs.media3.okhttp)
 
-    // Google Cast - only included in GMS flavor (not available in F-Droid/FOSS builds)
+    // Google Cast
     "gmsImplementation"(libs.mediarouter)
     "gmsImplementation"(libs.cast.framework)
 

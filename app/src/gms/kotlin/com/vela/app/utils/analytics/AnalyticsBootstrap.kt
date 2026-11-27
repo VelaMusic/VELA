@@ -9,9 +9,9 @@ import com.vela.app.utils.exceptionReporter
 import timber.log.Timber
 
 /**
- * GMS flavor: real Firebase Analytics + Crashlytics wiring.
+ * Real Firebase Analytics + Crashlytics wiring.
  *
- * `App.onCreate` calls [install] once (foss builds get a same-named no-op object).
+ * `App.onCreate` calls [install] once.
  * What it does:
  *  - obtains the (auto-initialized) FirebaseAnalytics singleton and registers it behind
  *    the shared [Analytics] facade;

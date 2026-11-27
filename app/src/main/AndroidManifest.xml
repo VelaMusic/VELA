@@ -84,7 +84,6 @@
         <!-- Firebase collection is ENABLED on purpose: the app ships     -->
         <!-- google-services.json and AnalyticsBootstrap (gms flavor)      -->
         <!-- turns Analytics + Crashlytics collection on at startup.       -->
-        <!-- FOSS builds contain no Firebase SDK at all.                   -->
         <!--                                                              -->
         <!-- Kept off (by design):                                         -->
         <!--  - automatic screen reporting: single-activity Compose app,   -->

@@ -731,7 +731,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(blockedArtists) { YouTube.blockedArtists = blockedArtists }
 
                 // Screen-view analytics: one listener for the whole nav graph, reported
-                // through the flavor-agnostic Analytics facade (no-op on foss builds).
+                // through the Analytics facade.
                 DisposableEffect(navController) {
                     val listener = androidx.navigation.NavController.OnDestinationChangedListener { _, destination, _ ->
                         destination.route?.let { route ->

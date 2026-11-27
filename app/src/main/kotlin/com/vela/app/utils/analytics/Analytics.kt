@@ -1,13 +1,11 @@
 package com.vela.app.utils.analytics
 
 /**
- * Flavor-agnostic analytics facade.
+ * Analytics facade.
  *
- * The FOSS flavor has no Firebase classes on its classpath, so the implementation is
- * injected at runtime by `AnalyticsBootstrap` — an object with the same fully-qualified
- * name provided by BOTH flavor source sets: real Firebase wiring under `src/gms`, a
- * no-op under `src/foss`. When no implementation is installed — FOSS builds — every
- * call here is a cheap no-op, so call sites never need flavor guards.
+ * The implementation is injected at runtime by `AnalyticsBootstrap` — the Firebase
+ * wiring under `src/gms`. When no implementation is installed, every call here is a
+ * cheap no-op, so call sites never need guards.
  *
  * This exists because the app previously shipped with NO analytics implementation at
  * all: `google-services.json` was absent from CI builds, no Firebase code was compiled
