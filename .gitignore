@@ -1,0 +1,58 @@
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+.kotlin/
+
+# Mac
+.DS_Store
+
+# build folders
+build/
+app/build/
+androidApp/build/
+composeApp/build/
+cast/build/
+cast-empty/build/
+crashlytics/build/
+crashlytics-empty/build/
+lastfm/build/
+lastfm-empty/build/
+*/build/
+
+# Gradle
+.gradle/
+
+# Kotlin Multiplatform
+/.kotlin
+
+# Logs
+*.log
+
+# Firebase / Google Services config.
+# The production google-services.json is SAFE to commit (it identifies the Firebase
+# project, not a secret credential — see Firebase docs) and MUST be in the repo for
+# CI builds to ship Analytics/Crashlytics. Debug-only variants stay ignored.
+app/google-services-debug.json
+app/debug/google-services.json
+# Root-anchored: only a stray repo-root copy is ignored; the committed
+# app/google-services.json above is intentionally tracked.
+/google-services.json
+
+# Sensitive — signing keys
+*.keystore
+*.jks
+!debug.keystore
+
+# Sensitive — environment files
+.env
+.env.*
+*.secret
+secrets.properties
+

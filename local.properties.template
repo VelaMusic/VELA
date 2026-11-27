@@ -1,0 +1,26 @@
+## This file must *NOT* be checked into Version Control Systems,
+## as it contains information specific to your local configuration.
+##
+## Copy this file to `local.properties` and adjust the values.
+
+# Location of the Android SDK. For example:
+# sdk.dir=/Users/username/Library/Android/sdk
+# OR
+# sdk.dir=C\:\\Users\\username\\AppData\\Local\\Android\\sdk
+sdk.dir=YOUR_ANDROID_SDK_PATH
+
+# Optional: Firebase configuration for the GMS build.
+# Vela has no Firebase project yet. To enable Analytics/Crashlytics, register
+# com.vela.app in Firebase and either commit app/google-services.json or add
+# it base64-encoded as the GOOGLE_SERVICES_JSON CI secret. Without it, the
+# GMS build simply skips the Google Services plugin — the app builds and
+# runs fine, just without Firebase.
+
+# Optional: Last.fm API credentials (for scrobbling).
+# Register at https://www.last.fm/api/account/create
+# LASTFM_API_KEY=your_key_here
+# LASTFM_SECRET=your_secret_here
+
+# Optional: GitHub OAuth client (for the in-app changelog/comments feature).
+# GH_CLIENT_ID=your_client_id
+# GH_CLIENT_SECRET=your_client_secret

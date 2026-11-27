@@ -1,0 +1,6 @@
+{
+  global:
+    Java_com_vela_app_recognition_VibraSignature_*;
+  local:
+    *;
+};

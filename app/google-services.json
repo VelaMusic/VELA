@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "839283912939",
+    "project_id": "velamusicapp",
+    "storage_bucket": "velamusicapp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:839283912939:android:ca70d99f8b96cafbedceae",
+        "android_client_info": {
+          "package_name": "com.vela.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD2RsYhYx9Ansvi-WXTpz4LWaDA5FuF1kw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
