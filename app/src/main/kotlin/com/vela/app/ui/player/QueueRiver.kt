@@ -27,7 +27,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,9 +39,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Timeline
 import coil3.compose.AsyncImage
-import com.vela.app.LocalPlayerConnection
 import com.vela.app.extensions.metadata
 import com.vela.app.models.MediaMetadata
+import com.vela.app.playback.PlayerConnection
 import com.vela.app.ui.theme.VelaGradientBrush
 import com.vela.app.ui.theme.VelaShapes
 import com.vela.app.ui.theme.VelaSpace
@@ -98,37 +97,37 @@ private val QueueArtworkShape = RoundedCornerShape(11.dp)
  * @param mutableQueueWindows the drag-time snapshot list owned by the player
  * screen (mirrors the old app's Queue.kt: the UI reorders live, the player
  * commits on drag end). Only windows after the current one flow here.
+ * @param playerConnection the player connection (read by the caller).
+ * @param queueWindows the live queue windows (collected by the caller).
+ * @param currentWindowIndex the playing window index (collected by the caller).
  */
-@Composable
+// NOTE: intentionally NOT @Composable. LazyColumn's content lambda is a plain
+// LazyListScope.() -> Unit — NOT a @Composable context (it only registers
+// items; the @Composable work happens inside the item { } lambdas and in
+// QueueRiverRow). So all state is read by the caller (VelaPlayerScreen, which
+// is @Composable) and passed in as plain values; the derived lists below are
+// plain computations, re-run whenever the LazyColumn content re-executes
+// (which happens when queueWindows / currentWindowIndex change).
 fun LazyListScope.queueRiver(
     reorderableState: ReorderableLazyListState,
     mutableQueueWindows: List<Timeline.Window>,
+    playerConnection: PlayerConnection,
+    queueWindows: List<Timeline.Window>,
+    currentWindowIndex: Int,
 ) {
-    val playerConnection = LocalPlayerConnection.current ?: return
-    val currentWindowIndex by playerConnection.currentWindowIndex.collectAsState()
-    val queueWindows by playerConnection.queueWindows.collectAsState()
-
-    val upNext = remember(queueWindows, currentWindowIndex) {
-        if (currentWindowIndex in queueWindows.indices) {
-            queueWindows.subList(currentWindowIndex + 1, queueWindows.size)
-        } else {
-            queueWindows
-        }
+    val upNext = if (currentWindowIndex in queueWindows.indices) {
+        queueWindows.subList(currentWindowIndex + 1, queueWindows.size)
+    } else {
+        queueWindows
     }
     // The flowing rows: the drag snapshot, filtered to windows after the
     // current one, in snapshot order (so a live drag reorders the river).
-    val flowingWindows = remember(mutableQueueWindows, currentWindowIndex, queueWindows) {
-        val liveIndexOf = { window: Timeline.Window ->
-            queueWindows.indexOfFirst { it.uid == window.uid }
-        }
-        mutableQueueWindows.filter { liveIndexOf(it) > currentWindowIndex }
+    val liveIndexOf = { window: Timeline.Window ->
+        queueWindows.indexOfFirst { it.uid == window.uid }
     }
-    val currentWindow = remember(queueWindows, currentWindowIndex) {
-        queueWindows.getOrNull(currentWindowIndex)
-    }
-    val upNextDurationMs = remember(upNext) {
-        upNext.sumOf { (it.mediaItem.metadata?.duration ?: 0) * 1000L }
-    }
+    val flowingWindows = mutableQueueWindows.filter { liveIndexOf(it) > currentWindowIndex }
+    val currentWindow = queueWindows.getOrNull(currentWindowIndex)
+    val upNextDurationMs = upNext.sumOf { (it.mediaItem.metadata?.duration ?: 0) * 1000L }
 
     item(key = "queue-header") {
         Row(

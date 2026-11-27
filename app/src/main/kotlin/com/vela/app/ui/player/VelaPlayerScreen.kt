@@ -611,6 +611,9 @@ fun VelaPlayerScreen(
         queueRiver(
             reorderableState = reorderableState,
             mutableQueueWindows = mutableQueueWindows,
+            playerConnection = playerConnection,
+            queueWindows = queueWindows,
+            currentWindowIndex = currentWindowIndex,
         )
 
         item(key = "river-end") {
